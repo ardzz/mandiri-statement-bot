@@ -1,0 +1,6 @@
+.venv/
+.env
+*.csv
+*.xlsx
+cache/
+uploads/

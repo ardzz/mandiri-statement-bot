@@ -1,0 +1,32 @@
+version: '3.8'
+
+services:
+  mysql:
+    image: mysql:8
+    container_name: finance_mysql
+    restart: always
+    ports:
+      - ${MYSQL_PORT_FORWARD:-3306}:3306
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      MYSQL_DATABASE: ${MYSQL_DATABASE}
+      MYSQL_USER: ${MYSQL_USER}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD}
+    volumes:
+      - db_data:/var/lib/mysql
+
+  bot:
+    build:
+      context: .         # This points to your current dir (where Dockerfile is!)
+      dockerfile: Dockerfile
+    container_name: mandiri_finance_bot
+    env_file:
+      - .env
+    depends_on:
+      - mysql
+    volumes:
+      - .:/app
+    command: python run.py
+
+volumes:
+  db_data:
