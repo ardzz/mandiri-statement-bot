@@ -1,19 +1,20 @@
+from datetime import datetime
 from telegram import Update
-from telegram.ext import ContextTypes, ConversationHandler
-
+from telegram.ext import ConversationHandler, ContextTypes
 from core.database import Session
 from core.repository.BankAccountRepository import BankAccountRepository
-from datetime import datetime
 
 BIRTHDATE = range(1)
 
 
 async def ask_birth_date(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Asks the user for their birthdate."""
     await update.message.reply_text("Please enter your birth date (YYYY-MM-DD):")
     return BIRTHDATE
 
 
 async def save_birth_date(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Saves the user's birthdate and registers them."""
     text = update.message.text
     try:
         birth_date = datetime.strptime(text, "%Y-%m-%d")

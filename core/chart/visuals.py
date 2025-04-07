@@ -1,6 +1,7 @@
 import matplotlib.pyplot as plt
 
 def plot_balance_over_time(transactions, output_path='cache/chart_cache/balance_over_time.png'):
+    """Plot balance over time."""
     dates = [t['datetime'] for t in transactions]
     balances = [t['balance'] for t in transactions]
 
@@ -16,6 +17,7 @@ def plot_balance_over_time(transactions, output_path='cache/chart_cache/balance_
 
 
 def plot_incoming_vs_outgoing(transactions, output_path='cache/chart_cache/incoming_outgoing.png'):
+    """Plot incoming vs outgoing transactions."""
     dates = [t['datetime'].strftime('%Y-%m-%d') for t in transactions]
     incoming = [t['incoming'] or 0 for t in transactions]
     outgoing = [t['outgoing'] or 0 for t in transactions]
@@ -33,6 +35,7 @@ def plot_incoming_vs_outgoing(transactions, output_path='cache/chart_cache/incom
     plt.close()
 
 def plot_total_incoming_outgoing(transactions, output_path='cache/chart_cache/pie_io.png'):
+    """Plot total incoming vs outgoing transactions."""
     total_incoming = sum(t['incoming'] or 0 for t in transactions)
     total_outgoing = sum(t['outgoing'] or 0 for t in transactions)
 

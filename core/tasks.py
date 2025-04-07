@@ -8,6 +8,7 @@ from core.repository.BankAccountRepository import BankAccountRepository
 
 
 async def process_excel_async(file_path, user_id, context):
+    """Process the Excel file asynchronously and generate charts."""
     loop = asyncio.get_event_loop()
     result = await loop.run_in_executor(None, process_excel, file_path, user_id)
 
@@ -19,12 +20,15 @@ async def process_excel_async(file_path, user_id, context):
     else:
         chart_path = f"cache/chart_cache/{user_id}_report.png"
         if os.path.exists(chart_path):
-            await context.bot.send_photo(chat_id=user_id, photo=open(chart_path, "rb"))
+            with open(chart_path, "rb") as file:
+                chart_data = file.read()
+                await context.bot.send_photo(chat_id=user_id, photo=chart_data)
             await context.bot.send_message(chat_id=user_id, text="✅ Chart generated successfully!")
         else:
             await context.bot.send_message(chat_id=user_id, text="⚠️ Chart could not be found.")
 
 def process_excel(file_path, user_id):
+    """Process the Excel file and generate charts."""
     bank_account_repository = BankAccountRepository(Session())
     bank_account = bank_account_repository.get_by_telegram_id(user_id)
     birthdate = bank_account.birth_date.strftime("%d%m%Y")
@@ -34,5 +38,4 @@ def process_excel(file_path, user_id):
         generate_all_charts(transactions["transactions"], user_id)
         combine_charts(user_id, period=transactions["period"])
         return True
-    else:
-        return False
+    return False

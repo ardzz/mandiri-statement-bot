@@ -1,5 +1,7 @@
-from bot.main import run_bot
+"""Entry point to run the Telegram bot."""
+
 import logging
+from bot.main import run_bot
 
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',

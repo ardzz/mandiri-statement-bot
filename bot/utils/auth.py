@@ -9,6 +9,7 @@ from core.repository.BankAccountRepository import BankAccountRepository
 
 
 def requires_registration():
+    """Decorator to check if the user is registered."""
     def decorator(func):
         @wraps(func)
         async def wrapper(update: Update, context: ContextTypes.DEFAULT_TYPE, *args, **kwargs):
@@ -17,7 +18,8 @@ def requires_registration():
             repo = BankAccountRepository(db)
             user = repo.get_by_telegram_id(telegram_id)
             if not user:
-                await update.message.reply_text("❌ You need to register first. Use /start to begin.")
+                await update.message.reply_text("❌ You need to register "
+                "first. Use /start to begin.")
                 return
             return await func(update, context, *args, **kwargs)
         return wrapper

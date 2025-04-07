@@ -7,6 +7,7 @@ from bot.handlers.upload import guide_upload, upload_excel
 
 
 def register_handlers(app):
+    """ Register all handlers for the bot. """
     conv_handler = ConversationHandler(
         entry_points=[CommandHandler("start", start)],
         states={

@@ -1,9 +1,9 @@
-import matplotlib.pyplot as plt
-from collections import defaultdict
 import os
+import matplotlib.pyplot as plt
+
 
 def visualize_transactions(transactions, user_id):
-    # Sort by date
+    """Visualizes transactions with line and bar charts."""
     transactions.sort(key=lambda x: x['datetime'])
 
     dates = [tx['datetime'] for tx in transactions]
@@ -12,7 +12,7 @@ def visualize_transactions(transactions, user_id):
     outgoing = [tx['outgoing'] or 0 for tx in transactions]
 
     # Create directory if not exists
-    os.makedirs(f"cache/chart_cache", exist_ok=True)
+    os.makedirs("cache/chart_cache", exist_ok=True)
 
     # Line chart - Balance over time
     plt.figure(figsize=(10, 5))

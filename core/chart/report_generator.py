@@ -1,7 +1,7 @@
 import os
 from PIL import Image, ImageDraw, ImageFont
 
-from .visuals import (
+from core.chart.visuals import (
     plot_balance_over_time,
     plot_incoming_vs_outgoing,
     plot_total_incoming_outgoing
@@ -9,7 +9,7 @@ from .visuals import (
 
 def generate_all_charts(transactions: list[dict], user_id: int) -> None:
     """Generates individual charts and saves them to disk."""
-    folder = f"cache/chart_cache"
+    folder = "cache/chart_cache"
     os.makedirs(folder, exist_ok=True)
 
     plot_balance_over_time(transactions, f"{folder}/{user_id}_balance.png")
@@ -18,7 +18,7 @@ def generate_all_charts(transactions: list[dict], user_id: int) -> None:
 
 def combine_charts(user_id: int, period: str = "") -> str:
     """Combines individual charts into a single report image with an optional period label."""
-    folder = f"cache/chart_cache"
+    folder = "cache/chart_cache"
     files = [
         f"{folder}/{user_id}_balance.png",
         f"{folder}/{user_id}_bar.png",
@@ -35,7 +35,7 @@ def combine_charts(user_id: int, period: str = "") -> str:
     # Font setup for the period text
     try:
         font = ImageFont.truetype("arial.ttf", 28)
-    except:
+    except IOError:
         font = ImageFont.load_default()
 
     title_height = 40 if period else 0
