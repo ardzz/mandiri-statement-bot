@@ -1,4 +1,5 @@
 import dataclasses
+from datetime import datetime
 
 from sqlalchemy import create_engine, Column, Integer, String, Float, DateTime, ForeignKey
 from sqlalchemy.ext.declarative import declarative_base
@@ -9,8 +10,25 @@ Base = declarative_base()
 engine = create_engine(DATABASE_URL)
 Session = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
+class SoftDeleteMixin:
+    """ Mixin for soft delete functionality."""
+    deleted_at = Column(DateTime, nullable=True)
+
+    def soft_delete(self):
+        """ Marks the object as deleted by setting the deleted_at timestamp."""
+        self.deleted_at = datetime.now()
+
+    def restore(self):
+        """ Restores the object by clearing the deleted_at timestamp."""
+        self.deleted_at = None
+
+    @property
+    def is_deleted(self):
+        """ Checks if the object is marked as deleted."""
+        return self.deleted_at is not None
+
 @dataclasses.dataclass
-class Category(Base):
+class Category(SoftDeleteMixin, Base):
     """ Class representing a category of bank transactions."""
     __tablename__ = 'categories'
     id = Column(Integer, primary_key=True)
@@ -18,7 +36,7 @@ class Category(Base):
     subcategories = relationship("Subcategory", back_populates="category")
 
 @dataclasses.dataclass
-class Subcategory(Base):
+class Subcategory(SoftDeleteMixin, Base):
     """ Class representing a subcategory of bank transactions."""
     __tablename__ = 'subcategories'
     id = Column(Integer, primary_key=True)
@@ -28,11 +46,11 @@ class Subcategory(Base):
     transactions = relationship("BankTransaction", back_populates="subcategory")
 
 @dataclasses.dataclass
-class BankAccount(Base):
+class BankAccount(SoftDeleteMixin, Base):
     """ Class representing a bank account."""
     __tablename__ = 'bank_accounts'
     id = Column(Integer, primary_key=True)
-    telegram_id = Column(String(length=255), unique=True)
+    telegram_id = Column(String(length=255), unique=True, nullable=False)
     bank_name = Column(String(length=255), nullable=True)
     account_number = Column(String(length=255), unique=True, nullable=True)
     balance = Column(Float, nullable=True)
@@ -40,7 +58,7 @@ class BankAccount(Base):
     transactions = relationship("BankTransaction", back_populates="account")
 
 @dataclasses.dataclass
-class BankTransaction(Base):
+class BankTransaction(SoftDeleteMixin, Base):
     """ Class representing a bank transaction."""
     __tablename__ = 'bank_transactions'
     id = Column(Integer, primary_key=True)

@@ -1,3 +1,4 @@
+from datetime import datetime
 from typing import Type, TypeVar, Generic, List, Optional
 from sqlalchemy.orm import Session
 
@@ -36,6 +37,10 @@ class BaseRepository(Generic[T]):
     def delete(self, id_row: int) -> None:
         """Delete an object by its ID."""
         obj = self.get(id_row)
-        if obj:
+        if not obj:
+            return
+        if self._has_deleted_at(): # type: ignore[attr-defined]
+            setattr(obj, 'deleted_at', datetime.now())
+        else:
             self.db.delete(obj)
-            self.db.commit()
+        self.db.commit()
