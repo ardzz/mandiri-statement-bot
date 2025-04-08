@@ -7,23 +7,42 @@ from core.chart.visuals import (
     plot_total_incoming_outgoing
 )
 
-def generate_all_charts(transactions: list[dict], user_id: int) -> None:
+def generate_all_charts(transactions: list[dict], user_id: int, is_all_trx: bool = False) -> None:
     """Generates individual charts and saves them to disk."""
     folder = "cache/chart_cache"
     os.makedirs(folder, exist_ok=True)
 
-    plot_balance_over_time(transactions, f"{folder}/{user_id}_balance.png")
-    plot_incoming_vs_outgoing(transactions, f"{folder}/{user_id}_bar.png")
-    plot_total_incoming_outgoing(transactions, f"{folder}/{user_id}_pie.png")
+    if is_all_trx:
+        plot_balance_over_time_path = f"{folder}/{user_id}_balance_all_time.png"
+        plot_incoming_vs_outgoing_path = f"{folder}/{user_id}_bar_all_time.png"
+        plot_total_incoming_outgoing_path = f"{folder}/{user_id}_pie_all_time.png"
+    else:
+        plot_balance_over_time_path = f"{folder}/{user_id}_balance.png"
+        plot_incoming_vs_outgoing_path = f"{folder}/{user_id}_bar.png"
+        plot_total_incoming_outgoing_path = f"{folder}/{user_id}_pie.png"
 
-def combine_charts(user_id: int, period: str = "") -> str:
+    plot_balance_over_time(transactions, plot_balance_over_time_path, all_time=is_all_trx)
+    plot_incoming_vs_outgoing(transactions, plot_incoming_vs_outgoing_path, all_time=is_all_trx)
+    plot_total_incoming_outgoing(transactions, plot_total_incoming_outgoing_path, all_time=is_all_trx)
+
+def combine_charts(user_id: int, period: str = "", is_all_trx: bool = False) -> str:
     """Combines individual charts into a single report image with an optional period label."""
     folder = "cache/chart_cache"
-    files = [
-        f"{folder}/{user_id}_balance.png",
-        f"{folder}/{user_id}_bar.png",
-        f"{folder}/{user_id}_pie.png"
-    ]
+    if is_all_trx:
+        period = "All Time"
+        image_path = f"{folder}/{user_id}_report_all_time.png"
+        files = [
+            f"{folder}/{user_id}_balance_all_time.png",
+            f"{folder}/{user_id}_bar_all_time.png",
+            f"{folder}/{user_id}_pie_all_time.png"
+        ]
+    else:
+        image_path = f"{folder}/{user_id}_report.png"
+        files = [
+            f"{folder}/{user_id}_balance.png",
+            f"{folder}/{user_id}_bar.png",
+            f"{folder}/{user_id}_pie.png"
+        ]
 
     images = [Image.open(f) for f in files if os.path.exists(f)]
     if not images:
@@ -51,6 +70,5 @@ def combine_charts(user_id: int, period: str = "") -> str:
         combined_img.paste(img, (0, y))
         y += img.height
 
-    output_path = f"{folder}/{user_id}_report.png"
-    combined_img.save(output_path)
-    return output_path
+    combined_img.save(image_path)
+    return image_path

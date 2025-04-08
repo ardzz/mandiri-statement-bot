@@ -14,7 +14,7 @@ class TransactionRepository(BaseRepository[BankTransaction]):
         for transaction in transactions:
             try:
                 self.create({
-                    "date": transaction["datetime"],
+                    "date": transaction["date"],
                     "description": transaction["description"].strip(),
                     "incoming": transaction["incoming"],
                     "outgoing": transaction["outgoing"],
@@ -23,3 +23,17 @@ class TransactionRepository(BaseRepository[BankTransaction]):
                 })
             except IntegrityError:
                 self.db.rollback()
+
+    def get_all_transactions(self, user_id):
+        """Get all transactions for a user."""
+        with self.db as session:
+            transactions = (
+                session.query(BankTransaction)
+                .filter(
+                    BankTransaction.user_id == user_id,
+                    BankTransaction.deleted_at == None
+                )
+                .order_by(BankTransaction.date.desc())
+                .all()
+            )
+            return transactions

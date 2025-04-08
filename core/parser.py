@@ -45,7 +45,7 @@ def extract_transaction(row, next_row):
     datetime_obj = datetime.strptime(datetime_str, '%d %b %Y %H:%M:%S')
 
     return {
-        'datetime': datetime_obj,
+        'date': datetime_obj,
         'description': description,
         'incoming': parse_amount(incoming),
         'outgoing': parse_amount(outgoing),
