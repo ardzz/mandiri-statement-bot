@@ -1,5 +1,3 @@
-# bot/utils/auth.py
-
 from functools import wraps
 from telegram import Update
 from telegram.ext import ContextTypes
