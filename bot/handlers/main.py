@@ -5,7 +5,11 @@ from telegram.ext import ContextTypes
 async def send_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Send the main menu to the user."""
     keyboard = ReplyKeyboardMarkup(
-        keyboard=[["📤 Upload E-statement Excel"], ["📊 Recap"], ["📊 Recap All Time"], ["🔄 Sync Recap"]],
+        keyboard=[
+            ["📤 Upload E-statement Excel"], ["📊 Recap"],
+            ["📊 Recap All Time"], ["📊 Recap All Time Text Mode"],
+            ["🔄 Sync Recap"], ["❓ Help"]
+        ],
         resize_keyboard=True,
         one_time_keyboard=False
     )

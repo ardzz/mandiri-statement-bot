@@ -62,3 +62,45 @@ async def sync_recap(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("Recap synchronized and updated, use /recap_all_time to view the updated chart.")
     else:
         await update.message.reply_text("No transactions found to sync.")
+
+@requires_registration()
+async def recap_all_time_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Sends a recap of the user's financial data for all time in text format."""
+    user_id = update.effective_user.id
+    bank_account_repo = BankAccountRepository(Session())
+    bank_account = bank_account_repo.get_by_telegram_id(str(user_id))
+    bank_trx_repo = TransactionRepository(Session())
+    transactions = bank_trx_repo.get_all_transactions(bank_account.id)
+
+    if transactions:
+        total_transactions = len(transactions)
+        total_outcome = sum(trx.outgoing for trx in transactions if trx.outgoing and trx.outgoing < 0)
+        total_income = sum(trx.incoming for trx in transactions if trx.incoming and trx.incoming > 0)
+        highest_outcome = max((trx.outgoing for trx in transactions if trx.outgoing and trx.outgoing < 0), default=0)
+        highest_income = max((trx.incoming for trx in transactions if trx.incoming and trx.incoming > 0), default=0)
+        lowest_outcome = min((trx.outgoing for trx in transactions if trx.outgoing and trx.outgoing < 0), default=0)
+        lowest_income = min((trx.incoming for trx in transactions if trx.incoming and trx.incoming > 0), default=0)
+
+        outcome_count = len([trx for trx in transactions if trx.outgoing and trx.outgoing < 0])
+        income_count = len([trx for trx in transactions if trx.incoming and trx.incoming > 0])
+
+        avg_outcome = total_outcome / outcome_count if outcome_count else 0
+        avg_income = total_income / income_count if income_count else 0
+
+        recap_message = (
+            "📊 <b>All-Time Recap</b>\n"
+            "If you want to sync with the latest transactions, use /sync_recap.\n\n"
+            f"💳 Total transactions: <b>{total_transactions}</b>\n"
+            f"💸 Total outcome: <b>Rp {abs(total_outcome):,.2f}</b>\n"
+            f"💰 Total income: <b>Rp {total_income:,.2f}</b>\n"
+            f"📉 Highest outcome: <b>Rp {abs(highest_outcome):,.2f}</b>\n"
+            f"📈 Highest income: <b>Rp {highest_income:,.2f}</b>\n"
+            f"📊 Average outcome: <b>Rp {abs(avg_outcome):,.2f}</b>\n"
+            f"📊 Average income: <b>Rp {avg_income:,.2f}</b>\n"
+            f"🔻 Lowest outcome: <b>Rp {abs(lowest_outcome):,.2f}</b>\n"
+            f"🔺 Lowest income: <b>Rp {lowest_income:,.2f}</b>"
+        )
+
+        await update.message.reply_text(recap_message, parse_mode="HTML")
+    else:
+        await update.message.reply_text("No transactions found to display.")
