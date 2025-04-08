@@ -70,22 +70,18 @@ async def recap_all_time_text(update: Update, context: ContextTypes.DEFAULT_TYPE
     bank_account_repo = BankAccountRepository(Session())
     bank_account = bank_account_repo.get_by_telegram_id(str(user_id))
     bank_trx_repo = TransactionRepository(Session())
-    transactions = bank_trx_repo.get_all_transactions(bank_account.id)
+    statistics = bank_trx_repo.get_transaction_statistics(bank_account.id)
 
-    if transactions:
-        total_transactions = len(transactions)
-        total_outcome = sum(trx.outgoing for trx in transactions if trx.outgoing and trx.outgoing > 0)
-        total_income = sum(trx.incoming for trx in transactions if trx.incoming and trx.incoming > 0)
-        highest_outcome = max((trx.outgoing for trx in transactions if trx.outgoing and trx.outgoing > 0), default=0)
-        highest_income = max((trx.incoming for trx in transactions if trx.incoming and trx.incoming > 0), default=0)
-        lowest_outcome = min((trx.outgoing for trx in transactions if trx.outgoing and trx.outgoing < 10_000), default=0)
-        lowest_income = min((trx.incoming for trx in transactions if trx.incoming and trx.incoming > 0), default=0)
-
-        outcome_count = len([trx for trx in transactions if trx.outgoing and trx.outgoing > 0])
-        income_count = len([trx for trx in transactions if trx.incoming and trx.incoming > 0])
-
-        avg_outcome = total_outcome / outcome_count if outcome_count else 0
-        avg_income = total_income / income_count if income_count else 0
+    if statistics:
+        total_transactions = statistics["total_transactions"]
+        total_outcome = statistics["total_outcome"] or 0
+        total_income = statistics["total_income"] or 0
+        highest_outcome = statistics["highest_outcome"] or 0
+        highest_income = statistics["highest_income"] or 0
+        lowest_outcome = statistics["lowest_outcome"] or 0
+        lowest_income = statistics["lowest_income"] or 0
+        avg_outcome = statistics["avg_outcome"] or 0
+        avg_income = statistics["avg_income"] or 0
 
         recap_message = (
             "📊 <b>All-Time Recap</b>\n"
