@@ -2,7 +2,8 @@ import dataclasses
 from datetime import datetime
 
 from sqlalchemy import create_engine, Column, Integer, String, Float, DateTime, ForeignKey, UniqueConstraint
-from sqlalchemy.orm import sessionmaker, relationship, declarative_base, Mapped, mapped_column
+from sqlalchemy.orm import sessionmaker, relationship, declarative_base
+
 from config.settings import DATABASE_URL
 
 Base = declarative_base()
@@ -68,7 +69,7 @@ class BankTransaction(SoftDeleteMixin, Base):
     incoming = Column(Float, nullable=True)
     outgoing = Column(Float, nullable=True)
     balance = Column(Float)
-    date: Mapped[datetime] = mapped_column(DateTime, nullable=True, default=datetime.now)
+    date: datetime = Column(DateTime)
     account = relationship("BankAccount", back_populates="transactions")
     subcategory = relationship("Subcategory", back_populates="transactions")
 
