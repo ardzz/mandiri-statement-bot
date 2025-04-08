@@ -62,17 +62,16 @@ class BankTransaction(SoftDeleteMixin, Base):
     __tablename__ = 'bank_transactions'
     id = Column(Integer, primary_key=True)
     user_id = Column(Integer, ForeignKey('bank_accounts.id', ondelete='CASCADE', onupdate='CASCADE'))
-    date = Column(DateTime)
     description = Column(String(length=255))
     category_id = Column(Integer, ForeignKey('categories.id'), nullable=True)
     subcategory_id = Column(Integer, ForeignKey('subcategories.id'), nullable=True)
     incoming = Column(Float, nullable=True)
     outgoing = Column(Float, nullable=True)
     balance = Column(Float)
-    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=True, default=datetime.now)
+    date: Mapped[datetime] = mapped_column(DateTime, nullable=True, default=datetime.now)
     account = relationship("BankAccount", back_populates="transactions")
     subcategory = relationship("Subcategory", back_populates="transactions")
 
     __table_args__ = (
-        UniqueConstraint('user_id', 'created_at', name='uq_user_created_at'),
+        UniqueConstraint('user_id', 'date', name='uq_user_date'),
     )

@@ -13,7 +13,7 @@ class TransactionRepository(BaseRepository[BankTransaction]):
         for transaction in transactions:
             try:
                 self.create({
-                    "created_at": transaction["datetime"],
+                    "date": transaction["datetime"],
                     "description": transaction["description"],
                     "incoming": transaction["incoming"],
                     "outgoing": transaction["outgoing"],
