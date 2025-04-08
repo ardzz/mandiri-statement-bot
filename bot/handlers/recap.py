@@ -74,14 +74,14 @@ async def recap_all_time_text(update: Update, context: ContextTypes.DEFAULT_TYPE
 
     if transactions:
         total_transactions = len(transactions)
-        total_outcome = sum(trx.outgoing for trx in transactions if trx.outgoing and trx.outgoing < 0)
+        total_outcome = sum(trx.outgoing for trx in transactions if trx.outgoing and trx.outgoing > 0)
         total_income = sum(trx.incoming for trx in transactions if trx.incoming and trx.incoming > 0)
-        highest_outcome = max((trx.outgoing for trx in transactions if trx.outgoing and trx.outgoing < 0), default=0)
+        highest_outcome = max((trx.outgoing for trx in transactions if trx.outgoing and trx.outgoing > 0), default=0)
         highest_income = max((trx.incoming for trx in transactions if trx.incoming and trx.incoming > 0), default=0)
-        lowest_outcome = min((trx.outgoing for trx in transactions if trx.outgoing and trx.outgoing < 0), default=0)
+        lowest_outcome = min((trx.outgoing for trx in transactions if trx.outgoing and trx.outgoing < 10_000), default=0)
         lowest_income = min((trx.incoming for trx in transactions if trx.incoming and trx.incoming > 0), default=0)
 
-        outcome_count = len([trx for trx in transactions if trx.outgoing and trx.outgoing < 0])
+        outcome_count = len([trx for trx in transactions if trx.outgoing and trx.outgoing > 0])
         income_count = len([trx for trx in transactions if trx.incoming and trx.incoming > 0])
 
         avg_outcome = total_outcome / outcome_count if outcome_count else 0
