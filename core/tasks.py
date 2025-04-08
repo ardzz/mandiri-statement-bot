@@ -5,6 +5,7 @@ from core.chart.report_generator import generate_all_charts, combine_charts
 from core.database import Session
 from core.parser import parse_excel_data, open_excel
 from core.repository.BankAccountRepository import BankAccountRepository
+from core.repository.TransactionRepository import TransactionRepository
 
 
 async def process_excel_async(file_path, user_id, context):
@@ -35,6 +36,8 @@ def process_excel(file_path, user_id):
     decrypt_excel = open_excel(file_path, birthdate)
     if decrypt_excel:
         transactions = parse_excel_data(decrypt_excel)
+        bank_trx_repo = TransactionRepository(Session())
+        bank_trx_repo.insert_transaction(transactions["transactions"], bank_account)
         generate_all_charts(transactions["transactions"], user_id)
         combine_charts(user_id, period=transactions["period"])
         return True
