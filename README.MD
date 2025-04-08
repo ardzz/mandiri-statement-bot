@@ -20,6 +20,7 @@ A Telegram bot to parse bank statement Excel files, auto-categorize transactions
 ```bash
 git clone https://github.com/ardzz/mandiri-statement-bot.git
 cd mandiri-statement-bot
+```
 
 ### 2. Install Dependencies
 ```bash
