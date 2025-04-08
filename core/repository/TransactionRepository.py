@@ -15,7 +15,7 @@ class TransactionRepository(BaseRepository[BankTransaction]):
             try:
                 self.create({
                     "date": transaction["datetime"],
-                    "description": transaction["description"],
+                    "description": transaction["description"].strip(),
                     "incoming": transaction["incoming"],
                     "outgoing": transaction["outgoing"],
                     "balance": transaction["balance"],
