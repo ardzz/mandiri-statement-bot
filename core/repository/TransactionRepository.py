@@ -5,6 +5,7 @@ from core.repository.base import BaseRepository
 
 
 class TransactionRepository(BaseRepository[BankTransaction]):
+    """Repository for managing bank transactions."""
     def __init__(self, db: Session):
         super().__init__(db, BankTransaction)
 
