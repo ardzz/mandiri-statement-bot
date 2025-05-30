@@ -3,10 +3,11 @@ from telegram.ext import ContextTypes
 
 from core.database import Session
 from core.repository.BankAccountRepository import BankAccountRepository
-from .main import send_main_menu
+from .main import handle_main_menu
 from .register import ask_birth_date
 
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+
+async def handle_start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handles the /start command and checks if the user is registered."""
     db = Session()
     repo = BankAccountRepository(db)
@@ -16,4 +17,4 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not bank_account:
         return await ask_birth_date(update, context)
 
-    return await send_main_menu(update, context)
+    return await handle_main_menu(update, context)

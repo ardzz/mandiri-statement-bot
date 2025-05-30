@@ -6,7 +6,7 @@ from bot.utils.auth import requires_registration
 from core.tasks import process_excel_async
 
 @requires_registration()
-async def upload_excel(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def handle_excel_upload(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle the upload of an Excel file."""
     user_id = update.effective_user.id
     file = await update.message.document.get_file()
@@ -25,6 +25,6 @@ async def upload_excel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("✅ Processing complete. Use /recap to view charts.")
 
 @requires_registration()
-async def guide_upload(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def handle_upload_guide(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Guide the user to upload their bank statement."""
     await update.message.reply_text("Please upload your bank statement Excel file 📄")

@@ -56,3 +56,36 @@ class TransactionRepository(BaseRepository[BankTransaction]):
         with self.db as session:
             result = session.execute(text(query), {"user_id": user_id}).fetchone()
             return result._mapping
+
+    def get_transactions_by_date_range(self, start_date, end_date):
+        """Get transactions within a specific date range."""
+        with self.db as session:
+            transactions = (
+                session.query(BankTransaction)
+                .filter(
+                    BankTransaction.date.between(start_date, end_date),
+                    BankTransaction.deleted_at == None
+                )
+                .order_by(BankTransaction.date.desc())
+                .all()
+            )
+            return transactions
+
+    def get_transaction_statistics_by_date_range(self, start_date, end_date):
+        query = """
+            SELECT
+                COUNT(*)                                                   AS total_transactions,
+                SUM(IF(outgoing > 0, outgoing, 0))                         AS total_outcome,
+                SUM(IF(incoming > 0, incoming, 0))                         AS total_income,
+                MAX(IF(outgoing > 0, outgoing, NULL))                      AS highest_outcome,
+                MAX(IF(incoming > 0, incoming, NULL))                      AS highest_income,
+                MIN(IF(outgoing > 0 AND outgoing < 10000, outgoing, NULL)) AS lowest_outcome,
+                MIN(IF(incoming > 0, incoming, NULL))                      AS lowest_income,
+                AVG(IF(outgoing > 0, outgoing, NULL))                      AS avg_outcome,
+                AVG(IF(incoming > 0, incoming, NULL)) AS avg_income
+            FROM bank_transactions
+            WHERE date BETWEEN :start_date AND :end_date
+        """
+        with self.db as session:
+            result = session.execute(text(query), {"start_date": start_date, "end_date": end_date}).fetchone()
+            return result._mapping
