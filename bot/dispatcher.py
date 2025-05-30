@@ -19,7 +19,11 @@ from bot.handlers.budget import (
     handle_budget_menu, handle_budget_callback, handle_budget_category_selection,
     handle_budget_input, budget_conversation, SETTING_AMOUNT
 )
-from bot.handlers.goals import handle_goals_menu, handle_goals_callback
+from bot.handlers.goals import (
+    handle_goals_menu, handle_goals_callback, handle_set_goal_command,
+    handle_update_goal_command, handle_goal_title_input, handle_goal_amount_input,
+    handle_goal_date_input, handle_goal_cancel, GOAL_TITLE, GOAL_AMOUNT, GOAL_DATE
+)
 from bot.handlers.insights import handle_insights_menu, handle_insights_callback
 from bot.handlers.settings import handle_settings_menu, handle_settings_callback
 from bot.handlers.categorization import handle_auto_categorize, handle_categorization_stats
@@ -63,6 +67,21 @@ def register_handlers(app):
     )
     app.add_handler(budget_setting_conv)
 
+    # Goal creation conversation handler - THIS IS THE FIX
+    goal_creation_conv = ConversationHandler(
+        entry_points=[CallbackQueryHandler(handle_goals_callback, pattern="^create_goal_")],
+        states={
+            GOAL_TITLE: [MessageHandler(filters.TEXT & ~filters.COMMAND, handle_goal_title_input)],
+            GOAL_AMOUNT: [MessageHandler(filters.TEXT & ~filters.COMMAND, handle_goal_amount_input)],
+            GOAL_DATE: [MessageHandler(filters.TEXT & ~filters.COMMAND, handle_goal_date_input)],
+        },
+        fallbacks=[
+            CallbackQueryHandler(handle_goals_callback, pattern="^goals_close$"),
+            CommandHandler("cancel", handle_goal_cancel)
+        ],
+    )
+    app.add_handler(goal_creation_conv)
+
     # Enhanced Recap Custom Time Conversation with Presets
     recap_custom_time_conv = ConversationHandler(
         entry_points=[MessageHandler(filters.Regex(r"^📅 Recap Custom Time$"), handle_custom_time_start_with_presets)],
@@ -91,6 +110,10 @@ def register_handlers(app):
     app.add_handler(CommandHandler("goals", handle_goals_menu))
     app.add_handler(CommandHandler("insights", handle_insights_menu))
     app.add_handler(CommandHandler("settings", handle_settings_menu))
+
+    # Goal management commands
+    app.add_handler(CommandHandler("set_goal", handle_set_goal_command))
+    app.add_handler(CommandHandler("update_goal", handle_update_goal_command))
 
     # Categorization commands
     app.add_handler(CommandHandler("categorize", handle_auto_categorize))
