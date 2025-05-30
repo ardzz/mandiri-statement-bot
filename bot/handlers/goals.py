@@ -1,3 +1,7 @@
+import os
+
+import numpy as np
+from matplotlib import pyplot as plt
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes, ConversationHandler, MessageHandler, filters
 from datetime import datetime
@@ -367,17 +371,201 @@ async def _show_goal_creation_guide(query, user_id):
 
 async def _show_goal_progress(query, user_id):
     """Show detailed goal progress with charts."""
-    # This would generate progress charts for each goal
-    await query.edit_message_text(
-        "📊 <b>Goal Progress Charts</b>\n\n"
-        "Generating detailed progress visualization... ⏳\n\n"
-        "This feature will show:\n"
-        "• Progress over time\n"
-        "• Trend analysis\n"
-        "• Projected completion dates\n"
-        "• Achievement probability",
-        parse_mode="HTML"
-    )
+    await query.edit_message_text("📊 Generating goal progress chart... ⏳")
+
+    try:
+        session = Session()
+        goal_repo = GoalRepository(session)
+
+        from core.repository.BankAccountRepository import BankAccountRepository
+        account_repo = BankAccountRepository(session)
+        account = account_repo.get_by_telegram_id(str(user_id))
+
+        if not account:
+            await query.edit_message_text("❌ Account not found.")
+            return
+
+        goals = goal_repo.get_user_goals(account.id, active_only=True)
+
+        if not goals:
+            await query.edit_message_text(
+                "📊 <b>No Active Goals</b>\n\n"
+                "You don't have any active goals to show progress for.\n"
+                "Use 'Create Goal' to get started!",
+                parse_mode="HTML"
+            )
+            return
+
+        # Generate progress chart
+        os.makedirs("cache/chart_cache", exist_ok=True)
+        chart_path = f"cache/chart_cache/{user_id}_goal_progress.png"
+
+        # Create the chart
+        fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 6))
+
+        # Chart 1: Goal Progress Bar Chart
+        goal_names = [goal.title[:20] + "..." if len(goal.title) > 20 else goal.title for goal in goals]
+        current_amounts = [goal.current_amount for goal in goals]
+        target_amounts = [goal.target_amount for goal in goals]
+        progress_percentages = [(current / target * 100) if target > 0 else 0 for current, target in
+                                zip(current_amounts, target_amounts)]
+
+        y_pos = np.arange(len(goal_names))
+
+        # Create horizontal bar chart
+        bars1 = ax1.barh(y_pos, current_amounts, alpha=0.8, color='#4CAF50', label='Current Amount')
+        bars2 = ax1.barh(y_pos, target_amounts, alpha=0.3, color='#2196F3', label='Target Amount')
+
+        ax1.set_xlabel('Amount (IDR)')
+        ax1.set_title('Goal Progress Overview')
+        ax1.set_yticks(y_pos)
+        ax1.set_yticklabels(goal_names)
+        ax1.legend()
+        ax1.grid(axis='x', alpha=0.3)
+
+        # Format x-axis to show values in millions
+        ax1.xaxis.set_major_formatter(plt.FuncFormatter(lambda x, p: f'{x / 1000000:.1f}M'))
+
+        # Chart 2: Progress Percentage Pie Chart
+        completed_goals = sum(1 for p in progress_percentages if p >= 100)
+        in_progress_goals = sum(1 for p in progress_percentages if 0 < p < 100)
+        not_started_goals = sum(1 for p in progress_percentages if p == 0)
+
+        labels = []
+        sizes = []
+        colors = []
+
+        if completed_goals > 0:
+            labels.append(f'Completed ({completed_goals})')
+            sizes.append(completed_goals)
+            colors.append('#4CAF50')
+
+        if in_progress_goals > 0:
+            labels.append(f'In Progress ({in_progress_goals})')
+            sizes.append(in_progress_goals)
+            colors.append('#FF9800')
+
+        if not_started_goals > 0:
+            labels.append(f'Not Started ({not_started_goals})')
+            sizes.append(not_started_goals)
+            colors.append('#F44336')
+
+        if sizes:
+            ax2.pie(sizes, labels=labels, colors=colors, autopct='%1.1f%%', startangle=90)
+            ax2.set_title('Goals Status Distribution')
+        else:
+            ax2.text(0.5, 0.5, 'No Goals', ha='center', va='center', transform=ax2.transAxes)
+            ax2.set_title('Goals Status Distribution')
+
+        plt.tight_layout()
+        plt.savefig(chart_path, dpi=300, bbox_inches='tight')
+        plt.close()
+
+        # Send chart
+        with open(chart_path, 'rb') as chart:
+            await query.message.reply_photo(
+                photo=chart,
+                caption="📊 <b>Goal Progress Analysis</b>\n\nVisual representation of your financial goals progress.",
+                parse_mode="HTML"
+            )
+
+        # Send detailed text summary
+        summary_parts = ["📊 <b>Goal Progress Summary</b>\n"]
+
+        for goal in goals:
+            progress_pct = (goal.current_amount / goal.target_amount * 100) if goal.target_amount > 0 else 0
+            progress_bar = "🟩" * int(progress_pct // 10) + "⬜" * (10 - int(progress_pct // 10))
+
+            status_emoji = "🎉" if progress_pct >= 100 else "🟡" if progress_pct > 0 else "🔴"
+
+            days_left = ""
+            if goal.target_date:
+                days_remaining = (goal.target_date.date() - datetime.now().date()).days
+                if days_remaining > 0:
+                    days_left = f" ({days_remaining} days left)"
+                elif days_remaining == 0:
+                    days_left = " (Due today!)"
+                else:
+                    days_left = f" ({abs(days_remaining)} days overdue)"
+
+            summary_parts.append(
+                f"\n{status_emoji} <b>{goal.title}</b>\n"
+                f"   Progress: {progress_bar} {progress_pct:.1f}%\n"
+                f"   Current: {goal.current_amount:,.0f} IDR\n"
+                f"   Target: {goal.target_amount:,.0f} IDR\n"
+                f"   Remaining: {max(0, goal.target_amount - goal.current_amount):,.0f} IDR"
+                + (f"\n   Due: {goal.target_date.strftime('%Y-%m-%d')}{days_left}" if goal.target_date else "")
+            )
+
+        summary_text = "\n".join(summary_parts)
+        summary_text += "\n\n💡 Use /update_goal [goal_id] [amount] to update progress"
+
+        await query.edit_message_text(summary_text, parse_mode="HTML")
+        session.close()
+
+    except Exception as e:
+        await query.edit_message_text(f"❌ Error generating progress chart: {str(e)}")
+
+
+async def _show_goal_editing(query, user_id):
+    """Show goal editing options with interactive buttons."""
+    try:
+        session = Session()
+        goal_repo = GoalRepository(session)
+
+        from core.repository.BankAccountRepository import BankAccountRepository
+        account_repo = BankAccountRepository(session)
+        account = account_repo.get_by_telegram_id(str(user_id))
+
+        if not account:
+            await query.edit_message_text("❌ Account not found.")
+            return
+
+        goals = goal_repo.get_user_goals(account.id, active_only=False)
+
+        if not goals:
+            await query.edit_message_text(
+                "✏️ <b>No Goals to Edit</b>\n\n"
+                "You don't have any goals yet. Use 'Create Goal' to get started!",
+                parse_mode="HTML"
+            )
+            return
+
+        # Create interactive buttons for each goal
+        keyboard = []
+
+        message_parts = ["✏️ <b>Edit Your Goals</b>\n\nSelect a goal to edit:\n"]
+
+        for goal in goals[:10]:  # Show max 10 goals
+            progress_pct = (goal.current_amount / goal.target_amount * 100) if goal.target_amount > 0 else 0
+            status_emoji = "🎉" if progress_pct >= 100 else "🟡" if progress_pct > 0 else "🔴"
+
+            message_parts.append(
+                f"\n{status_emoji} <b>ID {goal.id}:</b> {goal.title}\n"
+                f"   Progress: {progress_pct:.1f}% ({goal.current_amount:,.0f} / {goal.target_amount:,.0f} IDR)"
+            )
+
+            keyboard.append([
+                InlineKeyboardButton(f"📝 Edit Goal {goal.id}", callback_data=f"edit_goal_{goal.id}"),
+                InlineKeyboardButton(f"➕ Add Progress", callback_data=f"add_progress_{goal.id}")
+            ])
+
+        keyboard.append([InlineKeyboardButton("❌ Cancel", callback_data="goals_close")])
+        reply_markup = InlineKeyboardMarkup(keyboard)
+
+        edit_text = "\n".join(message_parts)
+        edit_text += (
+            "\n\n💡 <b>Quick Commands:</b>\n"
+            "• <code>/update_goal [goal_id] [new_amount]</code> - Set progress\n"
+            "• <code>/add_goal_progress [goal_id] [amount]</code> - Add to progress\n\n"
+            "📋 Select a goal above or use commands directly."
+        )
+
+        await query.edit_message_text(edit_text, parse_mode="HTML", reply_markup=reply_markup)
+        session.close()
+
+    except Exception as e:
+        await query.edit_message_text(f"❌ Error loading goals: {str(e)}")
 
 
 async def _show_goal_editing(query, user_id):
@@ -719,3 +907,156 @@ async def _handle_goal_type_selection(query, callback_data, context):
 
     # THIS IS THE KEY FIX - return the conversation state
     return GOAL_TITLE
+
+
+@requires_registration()
+async def handle_add_goal_progress_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle /add_goal_progress command to add amount to current progress."""
+    if len(context.args) < 2:
+        await update.message.reply_text(
+            "❌ <b>Missing parameters</b>\n\n"
+            "<b>Usage:</b>\n"
+            "<code>/add_goal_progress [goal_id] [amount_to_add]</code>\n\n"
+            "<b>Example:</b>\n"
+            "<code>/add_goal_progress 1 500000</code> (adds 500k to goal progress)\n\n"
+            "Use /goals to see your goal IDs.",
+            parse_mode="HTML"
+        )
+        return
+
+    try:
+        goal_id = int(context.args[0])
+        amount_to_add = float(context.args[1].replace(",", "").replace(".", ""))
+
+        if amount_to_add <= 0:
+            await update.message.reply_text("❌ Amount to add must be positive.")
+            return
+
+        user_id = update.effective_user.id
+
+        from core.repository.BankAccountRepository import BankAccountRepository
+
+        session = Session()
+        try:
+            account_repo = BankAccountRepository(session)
+            account = account_repo.get_by_telegram_id(str(user_id))
+
+            if not account:
+                await update.message.reply_text("❌ Account not found.")
+                return
+
+            goal_repo = GoalRepository(session)
+            goal = goal_repo.get(goal_id)
+
+            if not goal or goal.user_id != account.id:
+                await update.message.reply_text("❌ Goal not found or you don't have permission to update it.")
+                return
+
+            # Add to current progress
+            new_amount = goal.current_amount + amount_to_add
+            updated_goal = goal_repo.update_goal_progress(goal_id, new_amount)
+
+            if updated_goal:
+                progress_pct = (new_amount / updated_goal.target_amount * 100) if updated_goal.target_amount > 0 else 0
+                progress_bar = "🟩" * int(progress_pct // 10) + "⬜" * (10 - int(progress_pct // 10))
+
+                status = "🎉 COMPLETED!" if progress_pct >= 100 else f"{progress_pct:.1f}%"
+
+                await update.message.reply_text(
+                    f"✅ <b>Goal Progress Added!</b>\n\n"
+                    f"🎯 <b>Goal:</b> {updated_goal.title}\n"
+                    f"➕ <b>Added:</b> {amount_to_add:,.0f} IDR\n"
+                    f"💰 <b>New Total:</b> {new_amount:,.0f} IDR\n"
+                    f"🎯 <b>Target:</b> {updated_goal.target_amount:,.0f} IDR\n"
+                    f"📊 <b>Progress:</b> {progress_bar} {status}\n\n"
+                    f"💡 Use /goals to view all your goals.",
+                    parse_mode="HTML"
+                )
+            else:
+                await update.message.reply_text("❌ Failed to update goal.")
+
+        finally:
+            session.close()
+
+    except ValueError:
+        await update.message.reply_text(
+            "❌ Invalid parameters. Goal ID must be a number and amount must be numeric.\n\n"
+            "Example: <code>/add_goal_progress 1 500000</code>",
+            parse_mode="HTML"
+        )
+    except Exception as e:
+        await update.message.reply_text(f"❌ Error updating goal: {str(e)}")
+
+@requires_registration()
+async def handle_list_goals_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle /list_goals command to show all goals with IDs."""
+    user_id = update.effective_user.id
+
+    try:
+        from core.repository.BankAccountRepository import BankAccountRepository
+
+        session = Session()
+        try:
+            account_repo = BankAccountRepository(session)
+            account = account_repo.get_by_telegram_id(str(user_id))
+
+            if not account:
+                await update.message.reply_text("❌ Account not found.")
+                return
+
+            goal_repo = GoalRepository(session)
+            goals = goal_repo.get_user_goals(account.id, active_only=False)
+
+            if not goals:
+                await update.message.reply_text(
+                    "🎯 <b>No Goals Found</b>\n\n"
+                    "You haven't set any financial goals yet.\n"
+                    "Use /set_goal to create your first goal!",
+                    parse_mode="HTML"
+                )
+                return
+
+            message_parts = ["🎯 <b>Your Financial Goals</b>\n"]
+
+            for goal in goals:
+                progress_pct = (goal.current_amount / goal.target_amount * 100) if goal.target_amount > 0 else 0
+                progress_bar = "🟩" * int(progress_pct // 10) + "⬜" * (10 - int(progress_pct // 10))
+
+                status_emoji = "🎉" if progress_pct >= 100 else "🟡" if progress_pct > 0 else "🔴"
+                active_status = "🟢" if goal.is_active else "⏸️"
+
+                days_left = ""
+                if goal.target_date:
+                    days_remaining = (goal.target_date.date() - datetime.now().date()).days
+                    if days_remaining > 0:
+                        days_left = f" ({days_remaining} days left)"
+                    elif days_remaining == 0:
+                        days_left = " (Due today!)"
+                    else:
+                        days_left = f" ({abs(days_remaining)} days overdue)"
+
+                message_parts.append(
+                    f"\n{active_status} <b>ID {goal.id}:</b> {goal.title} {status_emoji}\n"
+                    f"   Type: {goal.goal_type.title()}\n"
+                    f"   Progress: {progress_bar} {progress_pct:.1f}%\n"
+                    f"   Current: {goal.current_amount:,.0f} IDR\n"
+                    f"   Target: {goal.target_amount:,.0f} IDR\n"
+                    f"   Remaining: {max(0, goal.target_amount - goal.current_amount):,.0f} IDR"
+                    + (f"\n   Due: {goal.target_date.strftime('%Y-%m-%d')}{days_left}" if goal.target_date else "")
+                )
+
+            goals_text = "\n".join(message_parts)
+            goals_text += (
+                "\n\n💡 <b>Quick Commands:</b>\n"
+                "• <code>/update_goal [ID] [amount]</code> - Set progress\n"
+                "• <code>/add_goal_progress [ID] [amount]</code> - Add to progress\n"
+                "• <code>/goals</code> - Interactive menu"
+            )
+
+            await update.message.reply_text(goals_text, parse_mode="HTML")
+
+        finally:
+            session.close()
+
+    except Exception as e:
+        await update.message.reply_text(f"❌ Error loading goals: {str(e)}")

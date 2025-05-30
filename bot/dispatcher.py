@@ -22,7 +22,8 @@ from bot.handlers.budget import (
 from bot.handlers.goals import (
     handle_goals_menu, handle_goals_callback, handle_set_goal_command,
     handle_update_goal_command, handle_goal_title_input, handle_goal_amount_input,
-    handle_goal_date_input, handle_goal_cancel, GOAL_TITLE, GOAL_AMOUNT, GOAL_DATE
+    handle_goal_date_input, handle_goal_cancel, GOAL_TITLE, GOAL_AMOUNT, GOAL_DATE, handle_add_goal_progress_command,
+    handle_list_goals_command
 )
 from bot.handlers.insights import handle_insights_menu, handle_insights_callback
 from bot.handlers.settings import handle_settings_menu, handle_settings_callback
@@ -114,6 +115,10 @@ def register_handlers(app):
     # Goal management commands
     app.add_handler(CommandHandler("set_goal", handle_set_goal_command))
     app.add_handler(CommandHandler("update_goal", handle_update_goal_command))
+    app.add_handler(CommandHandler("set_goal", handle_set_goal_command))
+    app.add_handler(CommandHandler("update_goal", handle_update_goal_command))
+    app.add_handler(CommandHandler("add_goal_progress", handle_add_goal_progress_command))
+    app.add_handler(CommandHandler("list_goals", handle_list_goals_command))
 
     # Categorization commands
     app.add_handler(CommandHandler("categorize", handle_auto_categorize))
