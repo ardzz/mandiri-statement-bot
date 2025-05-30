@@ -1,7 +1,7 @@
 import dataclasses
 from datetime import datetime
 
-from sqlalchemy import create_engine, Column, Integer, String, Float, DateTime, ForeignKey, UniqueConstraint, Boolean
+from sqlalchemy import create_engine, Column, Integer, String, Float, DateTime, ForeignKey, UniqueConstraint, Boolean, Text
 from sqlalchemy.orm import sessionmaker, relationship, declarative_base
 
 from config.settings import DATABASE_URL
@@ -117,6 +117,9 @@ class BankAccount(SoftDeleteMixin, Base):
     budget_limits = relationship("BudgetLimit", back_populates="account")
     financial_goals = relationship("FinancialGoal", back_populates="account")
     spending_alerts = relationship("SpendingAlert", back_populates="account")
+    spending_patterns = relationship("SpendingPattern", back_populates="account")
+    recurring_transactions = relationship("RecurringTransaction", back_populates="account")
+    pattern_anomalies = relationship("PatternAnomaly", back_populates="account")
 
 
 @dataclasses.dataclass
@@ -140,3 +143,62 @@ class BankTransaction(SoftDeleteMixin, Base):
     __table_args__ = (
         UniqueConstraint('user_id', 'date', name='uq_user_date'),
     )
+
+@dataclasses.dataclass
+class SpendingPattern(SoftDeleteMixin, Base):
+    """Store detected spending patterns for users."""
+    __tablename__ = 'spending_patterns'
+
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, ForeignKey('bank_accounts.id', ondelete='CASCADE'))
+    pattern_type = Column(String(50), nullable=False)  # 'daily', 'weekly', 'monthly'
+    pattern_key = Column(String(100), nullable=False)  # e.g., 'monday', 'week_1', 'january'
+    average_amount = Column(Float, nullable=False)
+    transaction_count = Column(Integer, default=0)
+    confidence_score = Column(Float, default=0.0)  # 0.0 to 1.0
+    variance = Column(Float, default=0.0)
+    last_calculated = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    account = relationship("BankAccount", back_populates="spending_patterns")
+
+@dataclasses.dataclass
+class RecurringTransaction(SoftDeleteMixin, Base):
+    """Store detected recurring transactions."""
+    __tablename__ = 'recurring_transactions'
+
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, ForeignKey('bank_accounts.id', ondelete='CASCADE'))
+    merchant_pattern = Column(String(255), nullable=False)
+    category_id = Column(Integer, ForeignKey('categories.id'), nullable=True)
+    frequency_type = Column(String(50), nullable=False)  # 'daily', 'weekly', 'monthly', 'yearly'
+    frequency_value = Column(Integer, default=1)  # every N days/weeks/months
+    average_amount = Column(Float, nullable=False)
+    last_transaction_date = Column(DateTime)
+    next_expected_date = Column(DateTime)
+    confidence_score = Column(Float, default=0.0)
+    is_active = Column(Boolean, default=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    account = relationship("BankAccount", back_populates="recurring_transactions")
+    category = relationship("Category")
+
+
+class PatternAnomaly(SoftDeleteMixin, Base):
+    """Store detected spending anomalies."""
+    __tablename__ = 'pattern_anomalies'
+
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, ForeignKey('bank_accounts.id', ondelete='CASCADE'))
+    anomaly_type = Column(String(50), nullable=False)  # 'spike', 'drop', 'missing_recurring'
+    detected_date = Column(DateTime, nullable=False)
+    description = Column(Text)
+    severity = Column(String(20), default='medium')  # 'low', 'medium', 'high'
+    amount_involved = Column(Float)
+    deviation_percentage = Column(Float)
+    is_resolved = Column(Boolean, default=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    account = relationship("BankAccount", back_populates="pattern_anomalies")

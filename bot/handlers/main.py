@@ -8,6 +8,7 @@ async def handle_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
         keyboard=[
             ["📤 Upload E-statement Excel"],
             ["📊 Recap", "📈 Trends & Analysis"],
+            ["📊 Spending Patterns"],
             ["💰 Budget Management", "🎯 Financial Goals"],
             ["🔔 Smart Insights", "🏷️ Auto Categorize"],
             ["📅 Update Birthdate", "❓ Help"],

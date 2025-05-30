@@ -7,6 +7,10 @@ from bot.handlers.recap import (
     handle_custom_time_input_start, handle_custom_time_input_end, handle_back_to_main_menu,
     CHOOSE_PRESET, CHOOSE_START_DATE, CHOOSE_END_DATE
 )
+from bot.handlers.patterns import (
+    handle_patterns_menu, handle_patterns_callback,
+    handle_daily_patterns, handle_recurring_analysis
+)
 from bot.handlers.register import BIRTHDATE, handle_save_birthdate, handle_update_birthdate
 from bot.handlers.start import handle_start_command
 from bot.handlers.upload import handle_upload_guide, handle_excel_upload
@@ -100,6 +104,13 @@ def register_handlers(app):
         MessageHandler(filters.TEXT & filters.Regex(r"^📊?\s*Recap All Time Text Mode$"), handle_recap_all_time_text))
     app.add_handler(MessageHandler(filters.TEXT & filters.Regex(r"^🔄 Sync Recap$"), handle_sync_recap))
     app.add_handler(MessageHandler(filters.TEXT & filters.Regex(r"^❓ Help$"), handle_upload_guide))
+
+    # Pattern analysis handlers
+    app.add_handler(MessageHandler(filters.Regex("^📊 Spending Patterns$"), handle_patterns_menu))
+    app.add_handler(CallbackQueryHandler(handle_patterns_callback, pattern="^patterns_"))
+    app.add_handler(CommandHandler("patterns", handle_patterns_menu))
+    app.add_handler(CommandHandler("daily_patterns", handle_daily_patterns))
+    app.add_handler(CommandHandler("recurring", handle_recurring_analysis))
 
     # === File Upload Handler ===
     app.add_handler(MessageHandler(filters.Document.ALL, handle_excel_upload))
