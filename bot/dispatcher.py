@@ -1,9 +1,12 @@
-from telegram.ext import CommandHandler, MessageHandler, filters, ConversationHandler
+from telegram.ext import CommandHandler, MessageHandler, filters, ConversationHandler, CallbackQueryHandler
 
 from bot.handlers.main import handle_main_menu
-from bot.handlers.recap import handle_recap_all_time, handle_sync_recap, handle_recap_all_time_text, handle_recap_menu, \
-    handle_custom_time_start, handle_custom_time_input_start, handle_custom_time_input_end, handle_back_to_main_menu, CHOOSE_START_DATE, \
-    CHOOSE_END_DATE
+from bot.handlers.recap import (
+    handle_recap_all_time, handle_sync_recap, handle_recap_all_time_text, handle_recap_menu,
+    handle_custom_time_start_with_presets, handle_preset_callback, handle_custom_time_start,
+    handle_custom_time_input_start, handle_custom_time_input_end, handle_back_to_main_menu,
+    CHOOSE_PRESET, CHOOSE_START_DATE, CHOOSE_END_DATE
+)
 from bot.handlers.register import BIRTHDATE, handle_save_birthdate, handle_update_birthdate
 from bot.handlers.start import handle_start_command
 from bot.handlers.upload import handle_upload_guide, handle_excel_upload
@@ -34,14 +37,18 @@ def register_handlers(app):
     )
     app.add_handler(update_birthdate_conv)
 
-    # Recap Custom Time Conversation
+    # Enhanced Recap Custom Time Conversation with Presets
     recap_custom_time_conv = ConversationHandler(
-        entry_points=[MessageHandler(filters.Regex(r"^📅 Recap Custom Time$"), handle_custom_time_start)],
+        entry_points=[MessageHandler(filters.Regex(r"^📅 Recap Custom Time$"), handle_custom_time_start_with_presets)],
         states={
+            CHOOSE_PRESET: [CallbackQueryHandler(handle_preset_callback)],
             CHOOSE_START_DATE: [MessageHandler(filters.TEXT & ~filters.COMMAND, handle_custom_time_input_start)],
             CHOOSE_END_DATE: [MessageHandler(filters.TEXT & ~filters.COMMAND, handle_custom_time_input_end)],
         },
-        fallbacks=[MessageHandler(filters.Regex(r"^↩️ Back to Main Menu$"), handle_back_to_main_menu)],
+        fallbacks=[
+            MessageHandler(filters.Regex(r"^↩️ Back to Main Menu$"), handle_back_to_main_menu),
+            CallbackQueryHandler(handle_preset_callback, pattern="^(cancel|custom_range)$")
+        ],
     )
     app.add_handler(recap_custom_time_conv)
 
@@ -64,4 +71,3 @@ def register_handlers(app):
 
     # === File Upload Handler ===
     app.add_handler(MessageHandler(filters.Document.ALL, handle_excel_upload))
-
