@@ -11,3 +11,5 @@ pillow~=11.1.0
 pytest~=8.3.5
 pymysql
 python-dateutil~=2.8.2
+numpy~=2.2.4
+seaborn~=0.13.2
