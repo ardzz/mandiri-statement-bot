@@ -63,6 +63,118 @@ async def handle_budget_callback(update: Update, context: ContextTypes.DEFAULT_T
         await query.edit_message_text(f"❌ Error: {str(e)}")
 
 
+async def handle_budget_category_selection(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle budget category selection and start conversation."""
+    query = update.callback_query
+    await query.answer()
+
+    if query.data.startswith("set_budget_"):
+        category = query.data.replace("set_budget_", "")
+
+        if category == "custom":
+            await query.edit_message_text(
+                "✏️ <b>Custom Category</b>\n\n"
+                "Please type the name of the category you want to set a budget for:",
+                parse_mode="HTML"
+            )
+            context.user_data["budget_setting_step"] = "custom_category"
+            return SETTING_AMOUNT
+        else:
+            context.user_data["budget_category"] = category
+            await query.edit_message_text(
+                f"💰 <b>Set Budget for {category}</b>\n\n"
+                "Please enter the monthly budget limit amount (in IDR):\n"
+                "Example: 1000000 (for 1 million IDR)\n\n"
+                "💡 Type /cancel to cancel this operation.",
+                parse_mode="HTML"
+            )
+            context.user_data["budget_setting_step"] = "amount"
+            return SETTING_AMOUNT
+
+    # If it's not a set_budget callback, handle it normally
+    return ConversationHandler.END
+
+
+async def handle_budget_input(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle budget input during conversation."""
+    text = update.message.text.strip()
+    step = context.user_data.get("budget_setting_step")
+
+    if step == "custom_category":
+        # User entered custom category name
+        context.user_data["budget_category"] = text
+        await update.message.reply_text(
+            f"💰 <b>Set Budget for {text}</b>\n\n"
+            "Please enter the monthly budget limit amount (in IDR):\n"
+            "Example: 1000000 (for 1 million IDR)\n\n"
+            "💡 Type /cancel to cancel this operation.",
+            parse_mode="HTML"
+        )
+        context.user_data["budget_setting_step"] = "amount"
+        return SETTING_AMOUNT
+
+    elif step == "amount":
+        # User entered budget amount
+        try:
+            # Remove common formatting characters
+            cleaned_text = text.replace(",", "").replace(".", "").replace(" ", "")
+            amount = float(cleaned_text)
+
+            if amount <= 0:
+                await update.message.reply_text(
+                    "❌ Please enter a positive amount.\n\n"
+                    "Example: 1000000 (for 1 million IDR)"
+                )
+                return SETTING_AMOUNT
+
+            # Save budget limit
+            user_id = update.effective_user.id
+            category = context.user_data["budget_category"]
+
+            from core.database import Session
+            from core.repository.BankAccountRepository import BankAccountRepository
+
+            session = Session()
+            try:
+                account_repo = BankAccountRepository(session)
+                account = account_repo.get_by_telegram_id(str(user_id))
+
+                if account:
+                    budget_repo = BudgetRepository(session)
+                    budget_repo.set_budget_limit(account.id, category, amount)
+
+                    await update.message.reply_text(
+                        f"✅ <b>Budget Set Successfully!</b>\n\n"
+                        f"Category: {category}\n"
+                        f"Monthly Limit: {amount:,.0f} IDR\n\n"
+                        "Use /budget to view your budget status.",
+                        parse_mode="HTML"
+                    )
+                else:
+                    await update.message.reply_text("❌ Account not found.")
+            finally:
+                session.close()
+
+            # Clear user data
+            context.user_data.clear()
+            return ConversationHandler.END
+
+        except ValueError:
+            await update.message.reply_text(
+                "❌ Please enter a valid number.\n\n"
+                "Example: 1000000 (for 1 million IDR)\n\n"
+                "💡 Type /cancel to cancel this operation."
+            )
+            return SETTING_AMOUNT
+
+    # If we get here, something went wrong
+    await update.message.reply_text(
+        "❌ Something went wrong. Please try again with /budget."
+    )
+    context.user_data.clear()
+    return ConversationHandler.END
+
+
 async def _show_budget_status(query, user_id):
     """Show current budget status."""
     analysis_service = FinancialAnalysisService()
@@ -136,96 +248,6 @@ async def _start_budget_setting(query, user_id):
     )
 
 
-async def handle_budget_category_selection(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle budget category selection."""
-    query = update.callback_query
-    await query.answer()
-
-    if query.data.startswith("set_budget_"):
-        category = query.data.replace("set_budget_", "")
-
-        if category == "custom":
-            await query.edit_message_text(
-                "✏️ <b>Custom Category</b>\n\n"
-                "Please type the name of the category you want to set a budget for:",
-                parse_mode="HTML"
-            )
-            context.user_data["budget_setting_step"] = "custom_category"
-        else:
-            context.user_data["budget_category"] = category
-            await query.edit_message_text(
-                f"💰 <b>Set Budget for {category}</b>\n\n"
-                "Please enter the monthly budget limit amount (in IDR):\n"
-                "Example: 1000000 (for 1 million IDR)",
-                parse_mode="HTML"
-            )
-            context.user_data["budget_setting_step"] = "amount"
-
-        return SETTING_AMOUNT
-
-
-async def handle_budget_input(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle budget input during conversation."""
-    text = update.message.text.strip()
-    step = context.user_data.get("budget_setting_step")
-
-    if step == "custom_category":
-        # User entered custom category name
-        context.user_data["budget_category"] = text
-        await update.message.reply_text(
-            f"💰 <b>Set Budget for {text}</b>\n\n"
-            "Please enter the monthly budget limit amount (in IDR):\n"
-            "Example: 1000000 (for 1 million IDR)",
-            parse_mode="HTML"
-        )
-        context.user_data["budget_setting_step"] = "amount"
-        return SETTING_AMOUNT
-
-    elif step == "amount":
-        # User entered budget amount
-        try:
-            amount = float(text.replace(",", "").replace(".", ""))
-            if amount <= 0:
-                await update.message.reply_text("❌ Please enter a positive amount.")
-                return SETTING_AMOUNT
-
-            # Save budget limit
-            user_id = update.effective_user.id
-            category = context.user_data["budget_category"]
-
-            from core.database import Session
-            from core.repository.BankAccountRepository import BankAccountRepository
-
-            session = Session()
-            account_repo = BankAccountRepository(session)
-            account = account_repo.get_by_telegram_id(str(user_id))
-
-            if account:
-                budget_repo = BudgetRepository(session)
-                budget_repo.set_budget_limit(account.id, category, amount)
-
-                await update.message.reply_text(
-                    f"✅ <b>Budget Set Successfully!</b>\n\n"
-                    f"Category: {category}\n"
-                    f"Monthly Limit: {amount:,.0f} IDR\n\n"
-                    "Use /budget to view your budget status.",
-                    parse_mode="HTML"
-                )
-            else:
-                await update.message.reply_text("❌ Account not found.")
-
-            # Clear user data
-            context.user_data.clear()
-            return ConversationHandler.END
-
-        except ValueError:
-            await update.message.reply_text(
-                "❌ Please enter a valid number.\n"
-                "Example: 1000000 (for 1 million IDR)"
-            )
-            return SETTING_AMOUNT
-
-
 async def _show_budget_chart(query, user_id):
     """Show budget progress chart."""
     await query.edit_message_text("📊 Generating budget progress chart... ⏳")
@@ -248,33 +270,36 @@ async def _show_budget_chart(query, user_id):
         from core.repository.TransactionRepository import TransactionRepository
 
         session = Session()
-        account_repo = BankAccountRepository(session)
-        account = account_repo.get_by_telegram_id(str(user_id))
+        try:
+            account_repo = BankAccountRepository(session)
+            account = account_repo.get_by_telegram_id(str(user_id))
 
-        if not account:
-            await query.edit_message_text("❌ Account not found.")
-            return
+            if not account:
+                await query.edit_message_text("❌ Account not found.")
+                return
 
-        trx_repo = TransactionRepository(session)
-        transactions = trx_repo.get_all_transactions(account.id)
+            trx_repo = TransactionRepository(session)
+            transactions = trx_repo.get_all_transactions(account.id)
 
-        # Create budget limits dict
-        budget_limits = {category: status['limit'] for category, status in budget_status.items()}
+            # Create budget limits dict
+            budget_limits = {category: status['limit'] for category, status in budget_status.items()}
 
-        # Generate chart
-        os.makedirs("cache/chart_cache", exist_ok=True)
-        chart_path = f"cache/chart_cache/{user_id}_budget_progress.png"
-        plot_budget_progress(transactions, budget_limits, chart_path)
+            # Generate chart
+            os.makedirs("cache/chart_cache", exist_ok=True)
+            chart_path = f"cache/chart_cache/{user_id}_budget_progress.png"
+            plot_budget_progress(transactions, budget_limits, chart_path)
 
-        # Send chart
-        with open(chart_path, 'rb') as chart:
-            await query.message.reply_photo(
-                photo=chart,
-                caption="📊 <b>Budget Progress Chart</b>\n\nVisual representation of your spending vs budget limits.",
-                parse_mode="HTML"
-            )
+            # Send chart
+            with open(chart_path, 'rb') as chart:
+                await query.message.reply_photo(
+                    photo=chart,
+                    caption="📊 <b>Budget Progress Chart</b>\n\nVisual representation of your spending vs budget limits.",
+                    parse_mode="HTML"
+                )
 
-        await query.edit_message_text("✅ Budget chart generated!")
+            await query.edit_message_text("✅ Budget chart generated!")
+        finally:
+            session.close()
 
     except Exception as e:
         await query.edit_message_text(f"❌ Error generating chart: {str(e)}")
@@ -287,41 +312,44 @@ async def _show_budget_alerts(query, user_id):
     from core.repository.BudgetRepository import AlertRepository
 
     session = Session()
-    account_repo = BankAccountRepository(session)
-    account = account_repo.get_by_telegram_id(str(user_id))
+    try:
+        account_repo = BankAccountRepository(session)
+        account = account_repo.get_by_telegram_id(str(user_id))
 
-    if not account:
-        await query.edit_message_text("❌ Account not found.")
-        return
+        if not account:
+            await query.edit_message_text("❌ Account not found.")
+            return
 
-    alert_repo = AlertRepository(session)
-    alerts = alert_repo.get_user_alerts(account.id, unread_only=False)
+        alert_repo = AlertRepository(session)
+        alerts = alert_repo.get_user_alerts(account.id, unread_only=False)
 
-    # Filter budget-related alerts
-    budget_alerts = [a for a in alerts if a.alert_type in ['budget_exceeded', 'budget_warning']]
+        # Filter budget-related alerts
+        budget_alerts = [a for a in alerts if a.alert_type in ['budget_exceeded', 'budget_warning']]
 
-    if not budget_alerts:
-        await query.edit_message_text(
-            "🔔 <b>No Budget Alerts</b>\n\n"
-            "You don't have any budget-related alerts yet.",
-            parse_mode="HTML"
-        )
-        return
+        if not budget_alerts:
+            await query.edit_message_text(
+                "🔔 <b>No Budget Alerts</b>\n\n"
+                "You don't have any budget-related alerts yet.",
+                parse_mode="HTML"
+            )
+            return
 
-    message_parts = ["🔔 <b>Budget Alerts</b>\n"]
+        message_parts = ["🔔 <b>Budget Alerts</b>\n"]
 
-    for alert in budget_alerts[:10]:  # Show last 10 alerts
-        alert_emoji = "🔴" if alert.alert_type == 'budget_exceeded' else "🟡"
-        read_status = "✅" if alert.is_read else "🔔"
+        for alert in budget_alerts[:10]:  # Show last 10 alerts
+            alert_emoji = "🔴" if alert.alert_type == 'budget_exceeded' else "🟡"
+            read_status = "✅" if alert.is_read else "🔔"
 
-        message_parts.append(
-            f"{alert_emoji} {read_status} <b>{alert.category or 'General'}</b>\n"
-            f"   {alert.message}\n"
-            f"   {alert.created_at.strftime('%Y-%m-%d %H:%M')}\n"
-        )
+            message_parts.append(
+                f"{alert_emoji} {read_status} <b>{alert.category or 'General'}</b>\n"
+                f"   {alert.message}\n"
+                f"   {alert.created_at.strftime('%Y-%m-%d %H:%M')}\n"
+            )
 
-    alerts_text = "\n".join(message_parts)
-    await query.edit_message_text(alerts_text, parse_mode="HTML")
+        alerts_text = "\n".join(message_parts)
+        await query.edit_message_text(alerts_text, parse_mode="HTML")
+    finally:
+        session.close()
 
 
 # Budget setting conversation handler

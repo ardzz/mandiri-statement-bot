@@ -6,9 +6,8 @@ async def handle_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Send the main menu to the user with all available features."""
     keyboard = ReplyKeyboardMarkup(
         keyboard=[
-            ["📤 Upload E-statement Excel"],
+            ["📤 Upload E-statement Excel", "📊 Spending Patterns"],
             ["📊 Recap", "📈 Trends & Analysis"],
-            ["📊 Spending Patterns"],
             ["💰 Budget Management", "🎯 Financial Goals"],
             ["🔔 Smart Insights", "🏷️ Auto Categorize"],
             ["📅 Update Birthdate", "❓ Help"],

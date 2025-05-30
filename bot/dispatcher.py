@@ -15,7 +15,10 @@ from bot.handlers.register import BIRTHDATE, handle_save_birthdate, handle_updat
 from bot.handlers.start import handle_start_command
 from bot.handlers.upload import handle_upload_guide, handle_excel_upload
 from bot.handlers.trends import handle_trends_menu, handle_trends_callback
-from bot.handlers.budget import handle_budget_menu, handle_budget_callback
+from bot.handlers.budget import (
+    handle_budget_menu, handle_budget_callback, handle_budget_category_selection,
+    handle_budget_input, budget_conversation, SETTING_AMOUNT
+)
 from bot.handlers.goals import handle_goals_menu, handle_goals_callback
 from bot.handlers.insights import handle_insights_menu, handle_insights_callback
 from bot.handlers.settings import handle_settings_menu, handle_settings_callback
@@ -46,6 +49,19 @@ def register_handlers(app):
         fallbacks=[MessageHandler(filters.Regex(r"^↩️ Back to Main Menu$"), handle_back_to_main_menu)],
     )
     app.add_handler(update_birthdate_conv)
+
+    # Budget setting conversation handler
+    budget_setting_conv = ConversationHandler(
+        entry_points=[CallbackQueryHandler(handle_budget_category_selection, pattern="^set_budget_")],
+        states={
+            SETTING_AMOUNT: [MessageHandler(filters.TEXT & ~filters.COMMAND, handle_budget_input)],
+        },
+        fallbacks=[
+            CallbackQueryHandler(handle_budget_callback, pattern="^budget_close$"),
+            CommandHandler("cancel", lambda update, context: ConversationHandler.END)
+        ],
+    )
+    app.add_handler(budget_setting_conv)
 
     # Enhanced Recap Custom Time Conversation with Presets
     recap_custom_time_conv = ConversationHandler(
