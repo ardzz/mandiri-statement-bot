@@ -1,7 +1,7 @@
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes, ConversationHandler
 from bot.utils.auth import requires_registration
-from core.services.financial_analysis import FinancialAnalysisService
+from core.services.spending_pattern import FinancialAnalysisService
 from core.chart.advanced_visuals import (
     plot_spending_trends,
     plot_category_trends,

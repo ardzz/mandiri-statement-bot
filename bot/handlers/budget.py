@@ -1,11 +1,12 @@
+import os
+
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes, ConversationHandler, MessageHandler, filters
+
 from bot.utils.auth import requires_registration
-from core.services.financial_analysis import FinancialAnalysisService
-from core.repository.BudgetRepository import BudgetRepository
-from core.database import Session
 from core.chart.advanced_visuals import plot_budget_progress
-import os
+from core.repository.BudgetRepository import BudgetRepository
+from core.services.spending_pattern import FinancialAnalysisService
 
 # Conversation states
 SETTING_CATEGORY, SETTING_AMOUNT = range(2)
