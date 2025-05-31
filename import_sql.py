@@ -1,338 +1,304 @@
 """
-SQL File Import Script for Mandiri Statement Bot
-This script imports database structure and data from a .sql file with MySQL compatibility.
+Robust SQL Import Script that handles malformed SQL and data cleanup.
 """
 
 import sys
 import os
-import argparse
 import re
 from sqlalchemy import create_engine, text
 from sqlalchemy.orm import sessionmaker
 
-# Add the parent directory to sys.path to import core modules
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
 from config.settings import DATABASE_URL
 
-def detect_database_type():
-    """Detect database type from DATABASE_URL."""
-    url_lower = DATABASE_URL.lower()
-    if 'mysql' in url_lower:
-        return 'mysql'
-    elif 'postgresql' in url_lower:
-        return 'postgresql'
-    elif 'sqlite' in url_lower:
-        return 'sqlite'
-    else:
-        return 'unknown'
+def clean_and_fix_sql_content(content):
+    """Clean and fix malformed SQL content."""
+    print("🧹 Cleaning and fixing SQL content...")
 
-def convert_sql_for_mysql(sql_content):
-    """Convert SQL syntax to be MySQL compatible."""
-    print("🔄 Converting SQL syntax for MySQL...")
-
-    # Replace double quotes with backticks for table/column names
-    # But preserve double quotes in string literals
-    def replace_quotes(match):
-        content = match.group(1)
-        # If it looks like a table/column name (no spaces, alphanumeric + underscore)
-        if re.match(r'^[a-zA-Z_][a-zA-Z0-9_]*$', content):
-            return f'`{content}`'
-        else:
-            # Keep as double quotes for string literals
-            return f'"{content}"'
-
-    # Replace "table_name" with `table_name` but preserve string literals
-    sql_content = re.sub(r'"([^"]*)"', replace_quotes, sql_content)
-
-    # Fix specific MySQL syntax issues
-    replacements = [
-        # Remove IF EXISTS from CREATE TABLE (MySQL handles this differently)
-        (r'CREATE TABLE IF NOT EXISTS `([^`]+)`', r'CREATE TABLE `\1`'),
-
-        # Replace SERIAL with AUTO_INCREMENT
-        (r'\bSERIAL\b', 'INT AUTO_INCREMENT'),
-
-        # Replace BOOLEAN with TINYINT(1)
-        (r'\bBOOLEAN\b', 'TINYINT(1)'),
-
-        # Replace TEXT with appropriate MySQL text types
-        (r'\bTEXT\b', 'TEXT'),
-
-        # Handle datetime defaults
-        (r"DEFAULT CURRENT_TIMESTAMP", "DEFAULT CURRENT_TIMESTAMP"),
-        (r"DEFAULT NOW\(\)", "DEFAULT CURRENT_TIMESTAMP"),
-
-        # Remove ON UPDATE CASCADE if not supported
-        (r'\bON UPDATE CASCADE\b', ''),
-
-        # Fix constraint syntax
-        (r'CONSTRAINT `([^`]+)` ', r'CONSTRAINT \1 '),
-    ]
-
-    for pattern, replacement in replacements:
-        sql_content = re.sub(pattern, replacement, sql_content, flags=re.IGNORECASE)
-
-    return sql_content
-
-def convert_sql_for_postgresql(sql_content):
-    """Convert SQL syntax to be PostgreSQL compatible."""
-    print("🔄 Converting SQL syntax for PostgreSQL...")
-
-    # Replace backticks with double quotes
-    sql_content = re.sub(r'`([^`]*)`', r'"\1"', sql_content)
-
-    # Other PostgreSQL-specific conversions
-    replacements = [
-        (r'\bAUTO_INCREMENT\b', 'SERIAL'),
-        (r'\bTINYINT\(1\)\b', 'BOOLEAN'),
-        (r'\bDATETIME\b', 'TIMESTAMP'),
-    ]
-
-    for pattern, replacement in replacements:
-        sql_content = re.sub(pattern, replacement, sql_content, flags=re.IGNORECASE)
-
-    return sql_content
-
-def clean_sql_content(sql_content, db_type):
-    """Clean and prepare SQL content based on database type."""
-    print(f"🧹 Cleaning SQL content for {db_type}...")
-
-    # Remove comments and empty lines
-    lines = sql_content.split('\n')
+    lines = content.split('\n')
     cleaned_lines = []
+    current_statement = ""
+    in_insert = False
 
-    for line in lines:
+    for line_num, line in enumerate(lines, 1):
         line = line.strip()
 
         # Skip empty lines and comments
         if not line or line.startswith('--') or line.startswith('#'):
             continue
 
-        # Remove inline comments
-        if '--' in line:
-            line = line.split('--')[0].strip()
+        # Fix escaped newlines in data
+        line = line.replace('\\n', ' ')
 
-        if line:
+        # Remove problematic characters that might cause issues
+        line = re.sub(r'[^\x20-\x7E\x09\x0A\x0D]', '', line)  # Keep only printable ASCII
+
+        # Handle incomplete INSERT statements
+        if line.startswith('INSERT INTO') or line.startswith('insert into'):
+            if current_statement:
+                # Finish previous statement
+                if not current_statement.rstrip().endswith(';'):
+                    current_statement += ';'
+                cleaned_lines.append(current_statement)
+            current_statement = line
+            in_insert = True
+
+        # Handle lines that look like orphaned data (like your error case)
+        elif re.match(r"^[A-Z\s]+\\n\d+',\d+,\d+,\d+,\d+,\d+", line):
+            print(f"⚠️  Skipping orphaned data line {line_num}: {line[:100]}...")
+            continue
+
+        # Handle regular lines
+        elif current_statement:
+            current_statement += " " + line
+        else:
+            # Standalone statement
             cleaned_lines.append(line)
 
-    cleaned_content = '\n'.join(cleaned_lines)
+        # Check if statement is complete
+        if current_statement and line.endswith(';'):
+            cleaned_lines.append(current_statement)
+            current_statement = ""
+            in_insert = False
 
-    # Convert syntax based on database type
-    if db_type == 'mysql':
-        cleaned_content = convert_sql_for_mysql(cleaned_content)
-    elif db_type == 'postgresql':
-        cleaned_content = convert_sql_for_postgresql(cleaned_content)
+    # Add final statement if exists
+    if current_statement:
+        if not current_statement.rstrip().endswith(';'):
+            current_statement += ';'
+        cleaned_lines.append(current_statement)
 
-    return cleaned_content
+    return '\n'.join(cleaned_lines)
 
-def execute_sql_statements(engine, sql_content, db_type):
-    """Execute SQL statements from the content."""
-    print("🔄 Executing SQL statements...")
+def extract_and_fix_insert_statements(content):
+    """Extract and fix INSERT statements from malformed SQL."""
+    print("🔧 Extracting and fixing INSERT statements...")
 
-    try:
-        # Clean the SQL content
-        cleaned_sql = clean_sql_content(sql_content, db_type)
+    # Find all complete INSERT statements
+    insert_pattern = r'INSERT INTO\s+`?(\w+)`?\s*\([^)]+\)\s*VALUES\s*\([^;]+\);'
+    matches = re.findall(insert_pattern, content, re.IGNORECASE | re.DOTALL)
 
-        # Split SQL content into individual statements
-        statements = []
+    fixed_statements = []
 
-        # Split by semicolon and filter out empty statements
-        raw_statements = cleaned_sql.split(';')
+    # Extract complete statements
+    for match in re.finditer(insert_pattern, content, re.IGNORECASE | re.DOTALL):
+        statement = match.group(0)
 
-        for statement in raw_statements:
-            cleaned = statement.strip()
-            if cleaned and len(cleaned) > 5:  # Ignore very short statements
-                statements.append(cleaned)
+        # Clean the statement
+        statement = statement.replace('\\n', ' ')
+        statement = re.sub(r'\s+', ' ', statement)  # Normalize whitespace
 
-        print(f"📝 Found {len(statements)} SQL statements to execute")
-        executed_count = 0
-        failed_count = 0
+        fixed_statements.append(statement)
 
-        with engine.connect() as connection:
-            # Disable foreign key checks for MySQL
-            if db_type == 'mysql':
-                try:
-                    connection.execute(text("SET FOREIGN_KEY_CHECKS = 0"))
-                except:
-                    pass
+    return fixed_statements
 
-            for i, statement in enumerate(statements):
-                try:
-                    # Execute the statement
-                    connection.execute(text(statement))
-                    executed_count += 1
-
-                    # Print progress for long imports
-                    if (i + 1) % 5 == 0:
-                        print(f"   ✅ Executed {i + 1}/{len(statements)} statements...")
-
-                except Exception as stmt_error:
-                    failed_count += 1
-                    print(f"⚠️  Statement {i + 1} failed: {str(stmt_error)}")
-                    print(f"   Statement: {statement[:100]}...")
-
-                    # For critical errors, stop execution
-                    if "syntax error" in str(stmt_error).lower():
-                        print("❌ Critical syntax error detected. Stopping execution.")
-                        break
-
-                    # Continue with other statements for non-critical errors
-                    continue
-
-            # Re-enable foreign key checks for MySQL
-            if db_type == 'mysql':
-                try:
-                    connection.execute(text("SET FOREIGN_KEY_CHECKS = 1"))
-                except:
-                    pass
-
-            # Commit all changes
-            connection.commit()
-
-        print(f"✅ Successfully executed {executed_count} statements")
-        if failed_count > 0:
-            print(f"⚠️  {failed_count} statements failed")
-
-        return executed_count > 0
-
-    except Exception as e:
-        print(f"❌ Error executing SQL statements: {str(e)}")
-        return False
-
-def read_sql_file(file_path):
-    """Read and return SQL content from file."""
-    try:
-        # Try different encodings
-        encodings = ['utf-8', 'latin-1', 'cp1252']
-
-        for encoding in encodings:
-            try:
-                with open(file_path, 'r', encoding=encoding) as file:
-                    content = file.read()
-                print(f"✅ Successfully read SQL file with {encoding} encoding")
-                return content
-            except UnicodeDecodeError:
-                continue
-
-        print("❌ Could not read file with any supported encoding")
-        return None
-
-    except FileNotFoundError:
-        print(f"❌ SQL file not found: {file_path}")
-        return None
-    except Exception as e:
-        print(f"❌ Error reading SQL file: {str(e)}")
-        return None
-
-def import_sql_file(sql_file):
-    """Main function to import SQL file."""
-    print(f"🚀 Starting SQL Import from: {sql_file}")
+def import_sql_with_recovery(sql_file):
+    """Import SQL with error recovery and data validation."""
+    print(f"🚀 Starting robust SQL import from: {sql_file}")
     print("=" * 60)
 
-    # Check if file exists
-    if not os.path.exists(sql_file):
-        print(f"❌ File not found: {sql_file}")
+    # Read the file
+    try:
+        with open(sql_file, 'r', encoding='utf-8', errors='ignore') as file:
+            content = file.read()
+    except Exception as e:
+        print(f"❌ Error reading file: {e}")
         return False
 
-    # Detect database type
-    db_type = detect_database_type()
-    print(f"🔍 Detected database type: {db_type}")
+    print(f"📄 Original file size: {len(content):,} characters")
 
-    # Create database engine
+    # Clean and fix the content
+    cleaned_content = clean_and_fix_sql_content(content)
+
+    print(f"📄 Cleaned content size: {len(cleaned_content):,} characters")
+
+    # Connect to database
     try:
         engine = create_engine(DATABASE_URL)
-        print(f"✅ Connected to database")
+        print("✅ Connected to database")
     except Exception as e:
-        print(f"❌ Failed to connect to database: {str(e)}")
+        print(f"❌ Database connection failed: {e}")
         return False
 
-    # Read SQL file
-    sql_content = read_sql_file(sql_file)
-    if not sql_content:
+    # Split into statements
+    statements = [s.strip() for s in cleaned_content.split(';') if s.strip()]
+
+    print(f"📝 Found {len(statements)} statements to execute")
+
+    # Execute statements with recovery
+    executed = 0
+    failed = 0
+
+    with engine.connect() as connection:
+        # Disable foreign key checks for MySQL
+        try:
+            connection.execute(text("SET FOREIGN_KEY_CHECKS = 0"))
+            connection.execute(text("SET sql_mode = 'NO_AUTO_VALUE_ON_ZERO'"))
+        except:
+            pass
+
+        for i, statement in enumerate(statements, 1):
+            try:
+                # Skip very short statements
+                if len(statement) < 10:
+                    continue
+
+                # Validate statement before execution
+                if not is_valid_sql_statement(statement):
+                    print(f"⚠️  Skipping invalid statement {i}: {statement[:50]}...")
+                    continue
+
+                # Execute statement
+                connection.execute(text(statement))
+                executed += 1
+
+                if i % 10 == 0:
+                    print(f"   ✅ Executed {i}/{len(statements)} statements...")
+
+            except Exception as e:
+                failed += 1
+                error_msg = str(e)
+
+                # Log specific error types
+                if "syntax error" in error_msg.lower():
+                    print(f"❌ Syntax error in statement {i}: {statement[:100]}...")
+                elif "duplicate" in error_msg.lower():
+                    print(f"⚠️  Duplicate entry in statement {i} (skipping)")
+                else:
+                    print(f"⚠️  Error in statement {i}: {error_msg}")
+
+                continue
+
+        # Commit all changes
+        try:
+            connection.commit()
+            print(f"✅ Committed all changes")
+        except Exception as e:
+            print(f"⚠️  Commit warning: {e}")
+
+        # Re-enable foreign key checks
+        try:
+            connection.execute(text("SET FOREIGN_KEY_CHECKS = 1"))
+        except:
+            pass
+
+    print(f"\n📊 Import Summary:")
+    print(f"   • Executed: {executed} statements")
+    print(f"   • Failed: {failed} statements")
+    print(f"   • Success rate: {(executed/(executed+failed)*100):.1f}%")
+
+    return executed > 0
+
+def is_valid_sql_statement(statement):
+    """Basic validation for SQL statements."""
+    statement = statement.strip().upper()
+
+    # Check if it starts with valid SQL keywords
+    valid_starts = ['CREATE', 'INSERT', 'UPDATE', 'DELETE', 'ALTER', 'DROP', 'SELECT']
+
+    if not any(statement.startswith(keyword) for keyword in valid_starts):
         return False
 
-    print(f"📄 SQL file size: {len(sql_content):,} characters")
+    # Check for basic SQL structure
+    if statement.startswith('INSERT') and 'VALUES' not in statement:
+        return False
 
-    # Execute SQL statements
-    return execute_sql_statements(engine, sql_content, db_type)
+    # Check for malformed data (like your error case)
+    if re.match(r'^[A-Z\s]+\\n\d+', statement):
+        return False
+
+    return True
+
+def create_recovery_sql(original_file):
+    """Create a cleaned version of the SQL file for manual review."""
+    print("💾 Creating recovery SQL file...")
+
+    try:
+        with open(original_file, 'r', encoding='utf-8', errors='ignore') as file:
+            content = file.read()
+
+        # Clean content
+        cleaned_content = clean_and_fix_sql_content(content)
+
+        # Save cleaned version
+        recovery_file = original_file.replace('.sql', '_cleaned.sql')
+        with open(recovery_file, 'w', encoding='utf-8') as file:
+            file.write(cleaned_content)
+
+        print(f"✅ Cleaned SQL saved to: {recovery_file}")
+        return recovery_file
+
+    except Exception as e:
+        print(f"❌ Error creating recovery file: {e}")
+        return None
 
 def verify_import():
-    """Verify the import by checking table counts."""
+    """Verify the import results."""
     print("\n🔍 Verifying import...")
 
     try:
         engine = create_engine(DATABASE_URL)
         with engine.connect() as connection:
-            # Check if main tables exist and have data
-            tables_to_check = [
-                'bank_accounts',
-                'bank_transactions',
-                'categories',
-                'subcategories',
-                'budget_limits',
-                'financial_goals',
-                'spending_alerts'
+
+            tables = [
+                'bank_accounts', 'bank_transactions', 'categories',
+                'subcategories', 'budget_limits', 'financial_goals'
             ]
 
-            print("📊 Table verification:")
             total_records = 0
 
-            for table in tables_to_check:
+            for table in tables:
                 try:
-                    # Use backticks for MySQL, quotes for others
-                    db_type = detect_database_type()
-                    if db_type == 'mysql':
-                        query = f"SELECT COUNT(*) FROM `{table}`"
-                    else:
-                        query = f'SELECT COUNT(*) FROM "{table}"'
-
-                    result = connection.execute(text(query))
+                    result = connection.execute(text(f"SELECT COUNT(*) FROM `{table}`"))
                     count = result.scalar()
                     total_records += count
                     print(f"   • {table}: {count:,} records")
                 except Exception as e:
-                    print(f"   • {table}: ❌ Error ({str(e)})")
+                    print(f"   • {table}: ❌ ({str(e)})")
 
-            print(f"\n✅ Total records imported: {total_records:,}")
+            print(f"\n✅ Total records: {total_records:,}")
             return total_records > 0
 
     except Exception as e:
-        print(f"❌ Verification failed: {str(e)}")
+        print(f"❌ Verification failed: {e}")
         return False
 
 def main():
-    """Main function with command line argument parsing."""
-    parser = argparse.ArgumentParser(description='Import SQL file into Mandiri Statement Bot database')
-    parser.add_argument('sql_file', nargs='?', help='Path to the SQL file to import')
-    parser.add_argument('--verify', action='store_true', help='Verify import after completion')
-
-    args = parser.parse_args()
-
-    # Get SQL file path
-    sql_file = args.sql_file
-    if not sql_file:
+    """Main function."""
+    if len(sys.argv) > 1:
+        sql_file = sys.argv[1]
+    else:
         sql_file = input("📁 Enter path to your SQL file: ").strip()
 
-    # Import the SQL file
-    success = import_sql_file(sql_file)
-
-    if success:
-        print("\n✅ SQL import completed!")
-
-        # Verify import if requested or ask user
-        if args.verify or input("\n🔍 Verify import? (Y/n): ").strip().lower() != 'n':
-            if verify_import():
-                print("🎉 Import verification successful!")
-            else:
-                print("⚠️  Import verification found issues")
-
-        print("\n🤖 Your bot database is ready!")
-        print("   Use /start in your Telegram bot to begin!")
-
-    else:
-        print("\n❌ SQL import failed!")
+    if not os.path.exists(sql_file):
+        print(f"❌ File not found: {sql_file}")
         return 1
+
+    # Ask user what to do
+    print("\nOptions:")
+    print("1. Import with robust error handling")
+    print("2. Create cleaned SQL file only")
+    print("3. Both import and create cleaned file")
+
+    choice = input("\nChoose option (1-3): ").strip()
+
+    if choice in ['2', '3']:
+        recovery_file = create_recovery_sql(sql_file)
+        if choice == '2':
+            return 0
+
+    if choice in ['1', '3']:
+        success = import_sql_with_recovery(sql_file)
+
+        if success:
+            print("\n✅ Import completed!")
+
+            if input("\n🔍 Verify import? (Y/n): ").strip().lower() != 'n':
+                verify_import()
+
+            print("\n🤖 Your database is ready!")
+        else:
+            print("\n❌ Import failed!")
+            return 1
 
     return 0
 
