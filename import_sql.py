@@ -1,305 +1,324 @@
 """
-Robust SQL Import Script that handles malformed SQL and data cleanup.
+Import SQL dump into Docker Compose MySQL container
 """
 
-import sys
 import os
-import re
-from sqlalchemy import create_engine, text
-from sqlalchemy.orm import sessionmaker
+import subprocess
+import sys
+import time
+from datetime import datetime
 
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from config.settings import DATABASE_URL
 
-def clean_and_fix_sql_content(content):
-    """Clean and fix malformed SQL content."""
-    print("🧹 Cleaning and fixing SQL content...")
-
-    lines = content.split('\n')
-    cleaned_lines = []
-    current_statement = ""
-    in_insert = False
-
-    for line_num, line in enumerate(lines, 1):
-        line = line.strip()
-
-        # Skip empty lines and comments
-        if not line or line.startswith('--') or line.startswith('#'):
-            continue
-
-        # Fix escaped newlines in data
-        line = line.replace('\\n', ' ')
-
-        # Remove problematic characters that might cause issues
-        line = re.sub(r'[^\x20-\x7E\x09\x0A\x0D]', '', line)  # Keep only printable ASCII
-
-        # Handle incomplete INSERT statements
-        if line.startswith('INSERT INTO') or line.startswith('insert into'):
-            if current_statement:
-                # Finish previous statement
-                if not current_statement.rstrip().endswith(';'):
-                    current_statement += ';'
-                cleaned_lines.append(current_statement)
-            current_statement = line
-            in_insert = True
-
-        # Handle lines that look like orphaned data (like your error case)
-        elif re.match(r"^[A-Z\s]+\\n\d+',\d+,\d+,\d+,\d+,\d+", line):
-            print(f"⚠️  Skipping orphaned data line {line_num}: {line[:100]}...")
-            continue
-
-        # Handle regular lines
-        elif current_statement:
-            current_statement += " " + line
-        else:
-            # Standalone statement
-            cleaned_lines.append(line)
-
-        # Check if statement is complete
-        if current_statement and line.endswith(';'):
-            cleaned_lines.append(current_statement)
-            current_statement = ""
-            in_insert = False
-
-    # Add final statement if exists
-    if current_statement:
-        if not current_statement.rstrip().endswith(';'):
-            current_statement += ';'
-        cleaned_lines.append(current_statement)
-
-    return '\n'.join(cleaned_lines)
-
-def extract_and_fix_insert_statements(content):
-    """Extract and fix INSERT statements from malformed SQL."""
-    print("🔧 Extracting and fixing INSERT statements...")
-
-    # Find all complete INSERT statements
-    insert_pattern = r'INSERT INTO\s+`?(\w+)`?\s*\([^)]+\)\s*VALUES\s*\([^;]+\);'
-    matches = re.findall(insert_pattern, content, re.IGNORECASE | re.DOTALL)
-
-    fixed_statements = []
-
-    # Extract complete statements
-    for match in re.finditer(insert_pattern, content, re.IGNORECASE | re.DOTALL):
-        statement = match.group(0)
-
-        # Clean the statement
-        statement = statement.replace('\\n', ' ')
-        statement = re.sub(r'\s+', ' ', statement)  # Normalize whitespace
-
-        fixed_statements.append(statement)
-
-    return fixed_statements
-
-def import_sql_with_recovery(sql_file):
-    """Import SQL with error recovery and data validation."""
-    print(f"🚀 Starting robust SQL import from: {sql_file}")
-    print("=" * 60)
-
-    # Read the file
-    try:
-        with open(sql_file, 'r', encoding='utf-8', errors='ignore') as file:
-            content = file.read()
-    except Exception as e:
-        print(f"❌ Error reading file: {e}")
-        return False
-
-    print(f"📄 Original file size: {len(content):,} characters")
-
-    # Clean and fix the content
-    cleaned_content = clean_and_fix_sql_content(content)
-
-    print(f"📄 Cleaned content size: {len(cleaned_content):,} characters")
-
-    # Connect to database
-    try:
-        engine = create_engine(DATABASE_URL)
-        print("✅ Connected to database")
-    except Exception as e:
-        print(f"❌ Database connection failed: {e}")
-        return False
-
-    # Split into statements
-    statements = [s.strip() for s in cleaned_content.split(';') if s.strip()]
-
-    print(f"📝 Found {len(statements)} statements to execute")
-
-    # Execute statements with recovery
-    executed = 0
-    failed = 0
-
-    with engine.connect() as connection:
-        # Disable foreign key checks for MySQL
+class DockerComposeImporter:
+    def __init__(self):
+        self.compose_file = "docker-compose.yml"
+        self.env_file = ".env"
+        self.mysql_container = "finance_mysql"
+        self.env_vars = self.load_env_vars()
+        
+    def load_env_vars(self):
+        """Load environment variables from .env file."""
+        env_vars = {}
+        
+        if os.path.exists(self.env_file):
+            with open(self.env_file, 'r') as f:
+                for line in f:
+                    line = line.strip()
+                    if line and not line.startswith('#') and '=' in line:
+                        key, value = line.split('=', 1)
+                        env_vars[key] = value
+        
+        # Set defaults if not found
+        defaults = {
+            'MYSQL_ROOT_PASSWORD': 'root_password',
+            'MYSQL_DATABASE': 'finance_db',
+            'MYSQL_USER': 'finance_user',
+            'MYSQL_PASSWORD': 'finance_password',
+            'MYSQL_PORT_FORWARD': '3306'
+        }
+        
+        for key, default_value in defaults.items():
+            if key not in env_vars:
+                env_vars[key] = default_value
+                print(f"⚠️  Using default for {key}: {default_value}")
+        
+        return env_vars
+    
+    def run_command(self, command, description="", capture_output=True):
+        """Run shell command and return result."""
+        if description:
+            print(f"🔄 {description}")
+        
         try:
-            connection.execute(text("SET FOREIGN_KEY_CHECKS = 0"))
-            connection.execute(text("SET sql_mode = 'NO_AUTO_VALUE_ON_ZERO'"))
-        except:
-            pass
-
-        for i, statement in enumerate(statements, 1):
-            try:
-                # Skip very short statements
-                if len(statement) < 10:
-                    continue
-
-                # Validate statement before execution
-                if not is_valid_sql_statement(statement):
-                    print(f"⚠️  Skipping invalid statement {i}: {statement[:50]}...")
-                    continue
-
-                # Execute statement
-                connection.execute(text(statement))
-                executed += 1
-
-                if i % 10 == 0:
-                    print(f"   ✅ Executed {i}/{len(statements)} statements...")
-
-            except Exception as e:
-                failed += 1
-                error_msg = str(e)
-
-                # Log specific error types
-                if "syntax error" in error_msg.lower():
-                    print(f"❌ Syntax error in statement {i}: {statement[:100]}...")
-                elif "duplicate" in error_msg.lower():
-                    print(f"⚠️  Duplicate entry in statement {i} (skipping)")
-                else:
-                    print(f"⚠️  Error in statement {i}: {error_msg}")
-
-                continue
-
-        # Commit all changes
-        try:
-            connection.commit()
-            print(f"✅ Committed all changes")
-        except Exception as e:
-            print(f"⚠️  Commit warning: {e}")
-
-        # Re-enable foreign key checks
-        try:
-            connection.execute(text("SET FOREIGN_KEY_CHECKS = 1"))
-        except:
-            pass
-
-    print(f"\n📊 Import Summary:")
-    print(f"   • Executed: {executed} statements")
-    print(f"   • Failed: {failed} statements")
-    print(f"   • Success rate: {(executed/(executed+failed)*100):.1f}%")
-
-    return executed > 0
-
-def is_valid_sql_statement(statement):
-    """Basic validation for SQL statements."""
-    statement = statement.strip().upper()
-
-    # Check if it starts with valid SQL keywords
-    valid_starts = ['CREATE', 'INSERT', 'UPDATE', 'DELETE', 'ALTER', 'DROP', 'SELECT']
-
-    if not any(statement.startswith(keyword) for keyword in valid_starts):
+            result = subprocess.run(
+                command,
+                shell=True,
+                capture_output=capture_output,
+                text=True,
+                check=True
+            )
+            return True, result.stdout if capture_output else ""
+        except subprocess.CalledProcessError as e:
+            error_msg = e.stderr if capture_output else str(e)
+            return False, error_msg
+    
+    def check_prerequisites(self):
+        """Check if Docker and docker compose are available."""
+        print("🔍 Checking prerequisites...")
+        
+        # Check Docker
+        success, _ = self.run_command("docker --version")
+        if not success:
+            print("❌ Docker is not installed or running")
+            return False
+        
+        # Check docker compose
+        success, _ = self.run_command("docker compose --version")
+        if not success:
+            print("❌ docker compose is not installed")
+            return False
+        
+        # Check if docker compose.yml exists
+        if not os.path.exists(self.compose_file):
+            print(f"❌ {self.compose_file} not found")
+            return False
+        
+        print("✅ All prerequisites met")
+        return True
+    
+    def start_mysql_container(self):
+        """Start MySQL container using docker compose."""
+        print("🚀 Starting MySQL container...")
+        
+        # Start only the mysql service
+        success, output = self.run_command(
+            "docker compose up -d mysql",
+            "Starting MySQL service..."
+        )
+        
+        if not success:
+            print(f"❌ Failed to start MySQL container: {output}")
+            return False
+        
+        print("✅ MySQL container started")
+        return True
+    
+    def wait_for_mysql(self, max_attempts=60):
+        """Wait for MySQL to be ready."""
+        print("⏳ Waiting for MySQL to be ready...")
+        
+        for attempt in range(max_attempts):
+            success, _ = self.run_command(
+                f"docker exec {self.mysql_container} mysqladmin ping -h localhost --silent",
+                ""
+            )
+            
+            if success:
+                print("✅ MySQL is ready!")
+                return True
+            
+            time.sleep(2)
+            if (attempt + 1) % 10 == 0:
+                print(f"   Still waiting... ({attempt + 1}/{max_attempts})")
+        
+        print("❌ MySQL failed to start within timeout")
         return False
-
-    # Check for basic SQL structure
-    if statement.startswith('INSERT') and 'VALUES' not in statement:
-        return False
-
-    # Check for malformed data (like your error case)
-    if re.match(r'^[A-Z\s]+\\n\d+', statement):
-        return False
-
-    return True
-
-def create_recovery_sql(original_file):
-    """Create a cleaned version of the SQL file for manual review."""
-    print("💾 Creating recovery SQL file...")
-
-    try:
-        with open(original_file, 'r', encoding='utf-8', errors='ignore') as file:
-            content = file.read()
-
-        # Clean content
-        cleaned_content = clean_and_fix_sql_content(content)
-
-        # Save cleaned version
-        recovery_file = original_file.replace('.sql', '_cleaned.sql')
-        with open(recovery_file, 'w', encoding='utf-8') as file:
-            file.write(cleaned_content)
-
-        print(f"✅ Cleaned SQL saved to: {recovery_file}")
-        return recovery_file
-
-    except Exception as e:
-        print(f"❌ Error creating recovery file: {e}")
-        return None
-
-def verify_import():
-    """Verify the import results."""
-    print("\n🔍 Verifying import...")
-
-    try:
-        engine = create_engine(DATABASE_URL)
-        with engine.connect() as connection:
-
-            tables = [
-                'bank_accounts', 'bank_transactions', 'categories',
-                'subcategories', 'budget_limits', 'financial_goals'
-            ]
-
+    
+    def copy_sql_file(self, sql_file):
+        """Copy SQL file to MySQL container."""
+        print("📋 Copying SQL file to container...")
+        
+        # Ensure the file exists
+        if not os.path.exists(sql_file):
+            print(f"❌ SQL file not found: {sql_file}")
+            return False
+        
+        # Copy file to container
+        success, output = self.run_command(
+            f"docker cp '{sql_file}' {self.mysql_container}:/tmp/import.sql",
+            f"Copying {os.path.basename(sql_file)}..."
+        )
+        
+        if not success:
+            print(f"❌ Failed to copy SQL file: {output}")
+            return False
+        
+        print("✅ SQL file copied to container")
+        return True
+    
+    def import_sql(self):
+        """Import the SQL file into MySQL."""
+        print("🔄 Importing SQL file...")
+        
+        # Prepare import command
+        mysql_cmd = f"""
+        docker exec -i {self.mysql_container} mysql \\
+            -u root \\
+            -p{self.env_vars['MYSQL_ROOT_PASSWORD']} \\
+            {self.env_vars['MYSQL_DATABASE']} \\
+            -e "
+                SET FOREIGN_KEY_CHECKS = 0;
+                SET AUTOCOMMIT = 0;
+                SET UNIQUE_CHECKS = 0;
+                SOURCE /tmp/import.sql;
+                COMMIT;
+                SET FOREIGN_KEY_CHECKS = 1;
+                SET UNIQUE_CHECKS = 1;
+            "
+        """
+        
+        success, output = self.run_command(mysql_cmd, "Executing SQL import...")
+        
+        if not success:
+            print(f"❌ SQL import failed: {output}")
+            return False
+        
+        print("✅ SQL import completed!")
+        return True
+    
+    def verify_import(self):
+        """Verify the import by checking tables and record counts."""
+        print("🔍 Verifying import...")
+        
+        verify_cmd = f"""
+        docker exec {self.mysql_container} mysql \\
+            -u root \\
+            -p{self.env_vars['MYSQL_ROOT_PASSWORD']} \\
+            {self.env_vars['MYSQL_DATABASE']} \\
+            -e "
+                SELECT 
+                    TABLE_NAME as 'Table',
+                    TABLE_ROWS as 'Rows'
+                FROM INFORMATION_SCHEMA.TABLES 
+                WHERE TABLE_SCHEMA = '{self.env_vars['MYSQL_DATABASE']}' 
+                ORDER BY TABLE_NAME;
+            "
+        """
+        
+        success, output = self.run_command(verify_cmd)
+        
+        if success:
+            print("📊 Database tables:")
+            print(output)
+            
+            # Count total records
+            lines = output.strip().split('\n')[1:]  # Skip header
             total_records = 0
-
-            for table in tables:
-                try:
-                    result = connection.execute(text(f"SELECT COUNT(*) FROM `{table}`"))
-                    count = result.scalar()
-                    total_records += count
-                    print(f"   • {table}: {count:,} records")
-                except Exception as e:
-                    print(f"   • {table}: ❌ ({str(e)})")
-
-            print(f"\n✅ Total records: {total_records:,}")
-            return total_records > 0
-
-    except Exception as e:
-        print(f"❌ Verification failed: {e}")
-        return False
+            table_count = 0
+            
+            for line in lines:
+                if line.strip():
+                    parts = line.split('\t')
+                    if len(parts) >= 2:
+                        try:
+                            records = int(parts[1]) if parts[1] != 'NULL' else 0
+                            total_records += records
+                            table_count += 1
+                        except:
+                            pass
+            
+            print(f"\n📈 Summary:")
+            print(f"   • Tables: {table_count}")
+            print(f"   • Total records: {total_records:,}")
+            
+            return table_count > 0
+        else:
+            print(f"❌ Verification failed: {output}")
+            return False
+    
+    def show_connection_info(self):
+        """Show database connection information."""
+        print("\n🎉 Import completed successfully!")
+        print("=" * 50)
+        print("📊 Database Connection Information:")
+        print(f"   Host: localhost")
+        print(f"   Port: {self.env_vars['MYSQL_PORT_FORWARD']}")
+        print(f"   Database: {self.env_vars['MYSQL_DATABASE']}")
+        print(f"   Username: {self.env_vars['MYSQL_USER']}")
+        print(f"   Password: {self.env_vars['MYSQL_PASSWORD']}")
+        print(f"\n🔗 DATABASE_URL:")
+        print(f"   mysql+pymysql://{self.env_vars['MYSQL_USER']}:{self.env_vars['MYSQL_PASSWORD']}@localhost:{self.env_vars['MYSQL_PORT_FORWARD']}/{self.env_vars['MYSQL_DATABASE']}")
+        print(f"\n🤖 To start your bot:")
+        print(f"   docker compose up bot")
+    
+    def import_sql_file(self, sql_file):
+        """Main import process."""
+        print("🗃️  Docker Compose MySQL Import")
+        print(f"👤 User: ardzz")
+        print(f"📅 Date: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+        print("=" * 50)
+        
+        # Show file info
+        if os.path.exists(sql_file):
+            file_size = os.path.getsize(sql_file)
+            print(f"📄 SQL File: {sql_file}")
+            print(f"📏 Size: {file_size:,} bytes ({file_size/1024/1024:.1f} MB)")
+        else:
+            print(f"❌ SQL file not found: {sql_file}")
+            return False
+        
+        # Show environment
+        print(f"🐳 MySQL Container: {self.mysql_container}")
+        print(f"🗄️  Database: {self.env_vars['MYSQL_DATABASE']}")
+        
+        # Check prerequisites
+        if not self.check_prerequisites():
+            return False
+        
+        # Start MySQL container
+        if not self.start_mysql_container():
+            return False
+        
+        # Wait for MySQL to be ready
+        if not self.wait_for_mysql():
+            return False
+        
+        # Copy SQL file
+        if not self.copy_sql_file(sql_file):
+            return False
+        
+        # Import SQL
+        if not self.import_sql():
+            return False
+        
+        # Verify import
+        if not self.verify_import():
+            print("⚠️  Import completed but verification had issues")
+        
+        # Show connection info
+        self.show_connection_info()
+        
+        return True
 
 def main():
     """Main function."""
+    # Default SQL file name based on your file
+    default_sql_file = "finance_db_localhost-2025_05_31_06_00_28-dump.sql"
+    
     if len(sys.argv) > 1:
         sql_file = sys.argv[1]
     else:
-        sql_file = input("📁 Enter path to your SQL file: ").strip()
-
-    if not os.path.exists(sql_file):
-        print(f"❌ File not found: {sql_file}")
+        sql_file = input(f"📁 Enter SQL file path (default: {default_sql_file}): ").strip()
+        if not sql_file:
+            sql_file = default_sql_file
+    
+    # Create importer and run
+    importer = DockerComposeImporter()
+    
+    # Confirm import
+    confirm = input(f"\n🚀 Import {sql_file} into Docker MySQL? (Y/n): ").strip().lower()
+    if confirm == 'n':
+        print("❌ Import cancelled")
+        return 0
+    
+    success = importer.import_sql_file(sql_file)
+    
+    if success:
+        print("\n🎉 All done! Your bot database is ready.")
+    else:
+        print("\n❌ Import failed!")
         return 1
-
-    # Ask user what to do
-    print("\nOptions:")
-    print("1. Import with robust error handling")
-    print("2. Create cleaned SQL file only")
-    print("3. Both import and create cleaned file")
-
-    choice = input("\nChoose option (1-3): ").strip()
-
-    if choice in ['2', '3']:
-        recovery_file = create_recovery_sql(sql_file)
-        if choice == '2':
-            return 0
-
-    if choice in ['1', '3']:
-        success = import_sql_with_recovery(sql_file)
-
-        if success:
-            print("\n✅ Import completed!")
-
-            if input("\n🔍 Verify import? (Y/n): ").strip().lower() != 'n':
-                verify_import()
-
-            print("\n🤖 Your database is ready!")
-        else:
-            print("\n❌ Import failed!")
-            return 1
-
+    
     return 0
 
 if __name__ == "__main__":
