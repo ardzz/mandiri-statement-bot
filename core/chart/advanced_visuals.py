@@ -13,6 +13,9 @@ def plot_spending_trends(transactions, output_path='cache/chart_cache/spending_t
     """Plot spending trends over time with moving averages."""
     if not transactions:
         return
+    
+    # Ensure directory exists
+    os.makedirs(os.path.dirname(output_path), exist_ok=True)
 
     try:
         # Convert to DataFrame for easier manipulation
@@ -572,3 +575,141 @@ def _create_fallback_chart(output_path, title, message):
         plt.close()
     except Exception as e:
         print(f"Error creating fallback chart: {e}")
+
+
+def plot_budget_progress(transactions, budget_limits, output_path='cache/chart_cache/budget_progress.png'):
+    """Plot budget progress showing actual vs budgeted amounts."""
+    if not budget_limits:
+        _create_fallback_chart(output_path, "Budget Progress", "No budget limits set")
+        return
+    
+    os.makedirs(os.path.dirname(output_path), exist_ok=True)
+
+    try:
+        # Get current month data
+        current_month = datetime.now().replace(day=1)
+        
+        # Calculate spending by category for current month
+        category_spending = defaultdict(float)
+        
+        for t in transactions:
+            date = t.date if hasattr(t, 'date') else t['date']
+            if isinstance(date, str):
+                date = datetime.strptime(date, '%Y-%m-%d')
+            
+            # Only include current month transactions
+            if date.year == current_month.year and date.month == current_month.month:
+                outgoing = abs(t.outgoing or 0) if hasattr(t, 'outgoing') else abs(t['outgoing'] or 0)
+                
+                # Get category
+                category = "Uncategorized"
+                if hasattr(t, 'category') and t.category:
+                    category = t.category.name if hasattr(t.category, 'name') else str(t.category)
+                
+                category_spending[category] += outgoing
+        
+        # Prepare data for plotting
+        categories = list(budget_limits.keys())
+        budgets = [budget_limits[cat] for cat in categories]
+        spent = [category_spending.get(cat, 0) for cat in categories]
+        
+        if not categories:
+            _create_fallback_chart(output_path, "Budget Progress", "No budget categories found")
+            return
+        
+        # Create horizontal bar chart
+        fig, ax = plt.subplots(figsize=(12, 8))
+        
+        y_pos = np.arange(len(categories))
+        
+        # Plot budget limits (background)
+        bars_budget = ax.barh(y_pos, budgets, alpha=0.3, color='lightblue', label='Budget Limit')
+        
+        # Plot actual spending (foreground)
+        bars_spent = ax.barh(y_pos, spent, alpha=0.8, color='red', label='Actual Spending')
+        
+        ax.set_xlabel('Amount (IDR)')
+        ax.set_title(f'Budget Progress - {current_month.strftime("%B %Y")}')
+        ax.set_yticks(y_pos)
+        ax.set_yticklabels(categories)
+        ax.legend()
+        ax.grid(axis='x', alpha=0.3)
+        
+        # Add percentage labels
+        for i, (budget, spending) in enumerate(zip(budgets, spent)):
+            percentage = (spending / budget * 100) if budget > 0 else 0
+            color = 'red' if percentage > 100 else 'orange' if percentage > 80 else 'green'
+            ax.text(max(budget, spending) + budget * 0.02, i, f'{percentage:.1f}%', 
+                   va='center', color=color, fontweight='bold')
+        
+        # Format x-axis to show values in millions if large
+        if max(budgets + spent) > 1000000:
+            ax.xaxis.set_major_formatter(plt.FuncFormatter(lambda x, p: f'{x/1000000:.1f}M'))
+        
+        plt.tight_layout()
+        plt.savefig(output_path, dpi=300, bbox_inches='tight')
+        plt.close()
+
+    except Exception as e:
+        print(f"Error generating budget progress chart: {e}")
+        _create_fallback_chart(output_path, "Budget Progress", f"Error: {str(e)}")
+
+
+def plot_spending_heatmap(transactions, output_path='cache/chart_cache/spending_heatmap.png'):
+    """Create a calendar heatmap of spending intensity."""
+    if not transactions:
+        _create_fallback_chart(output_path, "Spending Heatmap", "No transaction data available")
+        return
+    
+    os.makedirs(os.path.dirname(output_path), exist_ok=True)
+
+    try:
+        # Group spending by date
+        daily_spending = defaultdict(float)
+        
+        for t in transactions:
+            date = t.date if hasattr(t, 'date') else t['date']
+            if isinstance(date, str):
+                date = datetime.strptime(date, '%Y-%m-%d').date()
+            elif hasattr(date, 'date'):
+                date = date.date()
+            
+            outgoing = abs(t.outgoing or 0) if hasattr(t, 'outgoing') else abs(t['outgoing'] or 0)
+            daily_spending[date] += outgoing
+        
+        if not daily_spending:
+            _create_fallback_chart(output_path, "Spending Heatmap", "No spending data found")
+            return
+        
+        # Convert to DataFrame for easier manipulation
+        dates = list(daily_spending.keys())
+        amounts = list(daily_spending.values())
+        
+        df = pd.DataFrame({
+            'date': dates,
+            'amount': amounts
+        })
+        
+        # Create calendar-style heatmap
+        fig, ax = plt.subplots(figsize=(14, 8))
+        
+        # Group by month and create heatmap-like visualization
+        df['year_month'] = df['date'].apply(lambda x: x.strftime('%Y-%m'))
+        df['day'] = df['date'].apply(lambda x: x.day)
+        
+        # Pivot for heatmap
+        heatmap_data = df.pivot_table(values='amount', index='year_month', columns='day', fill_value=0)
+        
+        # Create heatmap
+        sns.heatmap(heatmap_data, cmap='Reds', cbar_kws={'label': 'Spending (IDR)'}, ax=ax)
+        ax.set_title('Daily Spending Intensity Heatmap')
+        ax.set_xlabel('Day of Month')
+        ax.set_ylabel('Month')
+        
+        plt.tight_layout()
+        plt.savefig(output_path, dpi=300, bbox_inches='tight')
+        plt.close()
+
+    except Exception as e:
+        print(f"Error generating spending heatmap: {e}")
+        _create_fallback_chart(output_path, "Spending Heatmap", f"Error: {str(e)}")
