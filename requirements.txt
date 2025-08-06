@@ -16,3 +16,4 @@ seaborn~=0.13.2
 joblib~=1.5.1
 scikit-learn~=1.6.1
 tensorflow
+openai~=1.0
