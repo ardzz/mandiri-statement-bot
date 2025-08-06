@@ -39,8 +39,12 @@ class BaseRepository(Generic[T]):
         obj = self.get(id_row)
         if not obj:
             return
-        if self._has_deleted_at(): # type: ignore[attr-defined]
+        if self._has_deleted_at(obj):
             setattr(obj, 'deleted_at', datetime.now())
         else:
             self.db.delete(obj)
         self.db.commit()
+    
+    def _has_deleted_at(self, obj) -> bool:
+        """Check if the object has a deleted_at attribute."""
+        return hasattr(obj, 'deleted_at')
