@@ -350,13 +350,49 @@ class SpendingPatternService:
 
     def _store_weekly_patterns(self, user_id: int, weekly_stats: Dict):
         """Store weekly patterns in database."""
-        # Implementation similar to daily patterns
-        pass
+        # Clear existing weekly patterns
+        self.session.query(SpendingPattern).filter(
+            SpendingPattern.user_id == user_id,
+            SpendingPattern.pattern_type == 'weekly'
+        ).delete()
+
+        # Store weekly patterns
+        for week, stats in weekly_stats.items():
+            pattern = SpendingPattern(
+                user_id=user_id,
+                pattern_type='weekly',
+                pattern_key=week,
+                average_amount=stats['average_transaction'],
+                transaction_count=stats['transaction_count'],
+                confidence_score=min(1.0, stats['transaction_count'] / 20),  # Higher with more data
+                variance=0  # Could calculate variance if needed
+            )
+            self.session.add(pattern)
+
+        self.session.commit()
 
     def _store_monthly_patterns(self, user_id: int, monthly_stats: Dict):
         """Store monthly patterns in database."""
-        # Implementation similar to daily patterns
-        pass
+        # Clear existing monthly patterns
+        self.session.query(SpendingPattern).filter(
+            SpendingPattern.user_id == user_id,
+            SpendingPattern.pattern_type == 'monthly'
+        ).delete()
+
+        # Store monthly patterns
+        for month, stats in monthly_stats.items():
+            pattern = SpendingPattern(
+                user_id=user_id,
+                pattern_type='monthly',
+                pattern_key=month,
+                average_amount=stats['average_transaction'],
+                transaction_count=stats['transaction_count'],
+                confidence_score=min(1.0, stats['transaction_count'] / 30),  # Higher with more data
+                variance=0  # Could calculate variance if needed
+            )
+            self.session.add(pattern)
+
+        self.session.commit()
 
     def _store_recurring_transaction(self, user_id: int, pattern: Dict, merchant: str):
         """Store recurring transaction pattern in database."""

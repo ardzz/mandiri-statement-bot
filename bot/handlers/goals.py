@@ -1,4 +1,5 @@
 import os
+import re
 
 import numpy as np
 from matplotlib import pyplot as plt
@@ -568,24 +569,6 @@ async def _show_goal_editing(query, user_id):
         await query.edit_message_text(f"❌ Error loading goals: {str(e)}")
 
 
-async def _show_goal_editing(query, user_id):
-    """Show goal editing options."""
-    edit_text = (
-        "✏️ <b>Edit Goals</b>\n\n"
-        "To modify existing goals, use:\n\n"
-        "<b>Update Progress:</b>\n"
-        "<code>/update_goal [goal_id] [new_amount]</code>\n\n"
-        "<b>Change Target:</b>\n"
-        "<code>/modify_goal [goal_id] target [new_target]</code>\n\n"
-        "<b>Extend Deadline:</b>\n"
-        "<code>/modify_goal [goal_id] date [new_date]</code>\n\n"
-        "<b>Pause/Resume:</b>\n"
-        "<code>/toggle_goal [goal_id]</code>\n\n"
-        "Use /goals to see your goal IDs."
-    )
-
-    await query.edit_message_text(edit_text, parse_mode="HTML")
-
 
 async def _show_achievements(query, user_id):
     """Show user's achievements and completed goals."""
@@ -879,34 +862,6 @@ async def handle_update_goal_command(update: Update, context: ContextTypes.DEFAU
         await update.message.reply_text(f"❌ Error updating goal: {str(e)}")
 
 
-async def _handle_goal_type_selection(query, callback_data, context):
-    """Handle goal type selection."""
-    goal_type = callback_data.replace("create_goal_", "")
-    context.user_data["goal_type"] = goal_type
-
-    goal_type_names = {
-        "savings": "Savings Goal",
-        "spending": "Spending Limit",
-        "income": "Income Target",
-        "custom": "Custom Goal"
-    }
-
-    goal_name = goal_type_names.get(goal_type, "Goal")
-
-    await query.edit_message_text(
-        f"📝 <b>Create {goal_name}</b>\n\n"
-        f"Please enter a title for your {goal_name.lower()}:\n\n"
-        "Examples:\n"
-        "• Emergency Fund\n"
-        "• Vacation Savings\n"
-        "• Reduce Food Expenses\n"
-        "• Freelance Income\n\n"
-        "💡 Type /cancel to cancel this operation.",
-        parse_mode="HTML"
-    )
-
-    # THIS IS THE KEY FIX - return the conversation state
-    return GOAL_TITLE
 
 
 @requires_registration()

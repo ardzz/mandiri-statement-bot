@@ -28,17 +28,16 @@ class TransactionRepository(BaseRepository[BankTransaction]):
 
     def get_all_transactions(self, user_id):
         """Get all transactions for a user."""
-        with self.db as session:
-            transactions = (
-                session.query(BankTransaction)
-                .filter(
-                    BankTransaction.user_id == user_id,
-                    BankTransaction.deleted_at == None
-                )
-                .order_by(BankTransaction.date.desc())
-                .all()
+        transactions = (
+            self.db.query(BankTransaction)
+            .filter(
+                BankTransaction.user_id == user_id,
+                BankTransaction.deleted_at == None
             )
-            return transactions
+            .order_by(BankTransaction.date.desc())
+            .all()
+        )
+        return transactions
 
     def get_transaction_statistics(self, user_id):
         """Get transaction statistics for a user."""
@@ -56,27 +55,25 @@ class TransactionRepository(BaseRepository[BankTransaction]):
             FROM bank_transactions
             WHERE user_id = :user_id AND deleted_at IS NULL
         """
-        with self.db as session:
-            result = session.execute(text(query), {"user_id": user_id}).fetchone()
-            return result._mapping
+        result = self.db.execute(text(query), {"user_id": user_id}).fetchone()
+        return result._mapping
 
     def get_transactions_by_date_range(self, user_id: int, start_date: date, end_date: date):
         """Get transactions within a specific date range for a user."""
-        with self.db as session:
-            transactions = (
-                session.query(BankTransaction)
-                .filter(
-                    and_(
-                        BankTransaction.user_id == user_id,
-                        BankTransaction.date >= start_date,
-                        BankTransaction.date <= end_date,
-                        BankTransaction.deleted_at == None
-                    )
+        transactions = (
+            self.db.query(BankTransaction)
+            .filter(
+                and_(
+                    BankTransaction.user_id == user_id,
+                    BankTransaction.date >= start_date,
+                    BankTransaction.date <= end_date,
+                    BankTransaction.deleted_at == None
                 )
-                .order_by(BankTransaction.date.desc())
-                .all()
             )
-            return transactions
+            .order_by(BankTransaction.date.desc())
+            .all()
+        )
+        return transactions
 
     def get_transaction_statistics_by_date_range(self, start_date: date, end_date: date):
         """Get transaction statistics within a specific date range."""
@@ -94,24 +91,22 @@ class TransactionRepository(BaseRepository[BankTransaction]):
             FROM bank_transactions
             WHERE date BETWEEN :start_date AND :end_date AND deleted_at IS NULL
         """
-        with self.db as session:
-            result = session.execute(text(query), {"start_date": start_date, "end_date": end_date}).fetchone()
-            return result._mapping
+        result = self.db.execute(text(query), {"start_date": start_date, "end_date": end_date}).fetchone()
+        return result._mapping
 
     def get_user_date_bounds(self, user_id: int):
         """Get the earliest and latest transaction dates for a user."""
-        with self.db as session:
-            result = session.execute(
-                text("""
-                    SELECT 
-                        MIN(DATE(date)) as min_date,
-                        MAX(DATE(date)) as max_date
-                    FROM bank_transactions 
-                    WHERE user_id = :user_id AND deleted_at IS NULL
-                """),
-                {"user_id": user_id}
-            ).fetchone()
+        result = self.db.execute(
+            text("""
+                SELECT 
+                    MIN(DATE(date)) as min_date,
+                    MAX(DATE(date)) as max_date
+                FROM bank_transactions 
+                WHERE user_id = :user_id AND deleted_at IS NULL
+            """),
+            {"user_id": user_id}
+        ).fetchone()
 
-            if result and result.min_date and result.max_date:
-                return result.min_date, result.max_date
-            return None, None
+        if result and result.min_date and result.max_date:
+            return result.min_date, result.max_date
+        return None, None

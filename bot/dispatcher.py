@@ -115,8 +115,6 @@ def register_handlers(app):
     # Goal management commands
     app.add_handler(CommandHandler("set_goal", handle_set_goal_command))
     app.add_handler(CommandHandler("update_goal", handle_update_goal_command))
-    app.add_handler(CommandHandler("set_goal", handle_set_goal_command))
-    app.add_handler(CommandHandler("update_goal", handle_update_goal_command))
     app.add_handler(CommandHandler("add_goal_progress", handle_add_goal_progress_command))
     app.add_handler(CommandHandler("list_goals", handle_list_goals_command))
 
