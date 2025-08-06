@@ -16,6 +16,11 @@ load_env_with_fallback()
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 DATABASE_URL = os.getenv("DATABASE_URL")
 
+# OpenAI Configuration
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-3.5-turbo")
+OPENAI_ENABLE_CATEGORIZATION = os.getenv("OPENAI_ENABLE_CATEGORIZATION", "false").lower() == "true"
+
 # Default settings for missing environment variables
 if not DATABASE_URL:
     DATABASE_URL = "sqlite:///./finance_bot.db"

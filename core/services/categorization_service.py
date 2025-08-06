@@ -1,8 +1,10 @@
 import re
+import json
 from typing import Dict, Optional, List
 from collections import defaultdict
 from core.database import Session, Category, Subcategory, BankTransaction
 from core.repository.TransactionRepository import TransactionRepository
+from config.settings import OPENAI_API_KEY, OPENAI_MODEL, OPENAI_ENABLE_CATEGORIZATION
 
 
 class CategorizationService:
@@ -10,6 +12,21 @@ class CategorizationService:
 
     def __init__(self):
         self.session = Session()
+        
+        # Initialize OpenAI client if configured
+        self.openai_client = None
+        self.openai_enabled = False
+        
+        if OPENAI_ENABLE_CATEGORIZATION and OPENAI_API_KEY:
+            try:
+                from openai import OpenAI
+                self.openai_client = OpenAI(api_key=OPENAI_API_KEY)
+                self.openai_enabled = True
+                print("✓ OpenAI client initialized for transaction categorization")
+            except ImportError:
+                print("⚠️  OpenAI package not available. Falling back to keyword-based categorization.")
+            except Exception as e:
+                print(f"⚠️  Failed to initialize OpenAI client: {e}. Falling back to keyword-based categorization.")
 
         # Define keyword patterns for categorization
         self.category_keywords = {
@@ -65,9 +82,115 @@ class CategorizationService:
             ]
         }
 
+    def _get_available_categories(self) -> Dict[str, List[str]]:
+        """Get all available categories and subcategories from the database."""
+        categories = self.session.query(Category).filter(Category.deleted_at.is_(None)).all()
+        
+        category_structure = {}
+        for category in categories:
+            subcategories = self.session.query(Subcategory).filter(
+                Subcategory.category_id == category.id,
+                Subcategory.deleted_at.is_(None)
+            ).all()
+            category_structure[category.name] = [sub.name for sub in subcategories]
+        
+        return category_structure
+
+    def _categorize_with_openai(self, description: str) -> Optional[Dict[str, any]]:
+        """
+        Use OpenAI to categorize a transaction based on its description.
+        
+        Returns:
+            Dict with category_id and subcategory_id, or None if categorization fails
+        """
+        if not self.openai_enabled or not self.openai_client:
+            return None
+            
+        try:
+            # Get available categories
+            categories = self._get_available_categories()
+            
+            # Create prompt for OpenAI
+            prompt = f"""
+You are a financial transaction categorizer. Given a transaction description, categorize it into one of the available categories and subcategories.
+
+Available categories and subcategories:
+{json.dumps(categories, indent=2)}
+
+Transaction description: "{description}"
+
+Please respond with a JSON object containing:
+- "category": the main category name (exactly as shown above)
+- "subcategory": the subcategory name (exactly as shown above, or null if no suitable subcategory)
+- "confidence": confidence score between 0.0 and 1.0
+
+If you cannot confidently categorize the transaction, respond with null.
+
+Example response:
+{{"category": "Food & Dining", "subcategory": "Restaurants", "confidence": 0.9}}
+"""
+
+            response = self.openai_client.chat.completions.create(
+                model=OPENAI_MODEL,
+                messages=[
+                    {"role": "system", "content": "You are a helpful financial transaction categorizer. Always respond with valid JSON."},
+                    {"role": "user", "content": prompt}
+                ],
+                temperature=0.1,
+                max_tokens=150
+            )
+            
+            result_text = response.choices[0].message.content.strip()
+            
+            # Parse JSON response
+            try:
+                result = json.loads(result_text)
+                if result is None:
+                    return None
+                    
+                category_name = result.get('category')
+                subcategory_name = result.get('subcategory')
+                confidence = result.get('confidence', 0.0)
+                
+                # Validate and get category from database
+                if category_name:
+                    category = self.session.query(Category).filter(
+                        Category.name == category_name,
+                        Category.deleted_at.is_(None)
+                    ).first()
+                    
+                    if category:
+                        subcategory = None
+                        if subcategory_name:
+                            subcategory = self.session.query(Subcategory).filter(
+                                Subcategory.name == subcategory_name,
+                                Subcategory.category_id == category.id,
+                                Subcategory.deleted_at.is_(None)
+                            ).first()
+                        
+                        return {
+                            'category_id': category.id,
+                            'subcategory_id': subcategory.id if subcategory else None,
+                            'category_name': category_name,
+                            'subcategory_name': subcategory_name if subcategory else None,
+                            'confidence': confidence,
+                            'method': 'openai'
+                        }
+                        
+            except json.JSONDecodeError:
+                print(f"⚠️  Failed to parse OpenAI response as JSON: {result_text}")
+                return None
+                
+        except Exception as e:
+            print(f"⚠️  OpenAI categorization failed: {e}")
+            return None
+            
+        return None
+
     def categorize_transaction(self, description: str) -> Optional[Dict[str, any]]:
         """
         Categorize a transaction based on its description.
+        Uses OpenAI if configured, otherwise falls back to keyword-based categorization.
 
         Returns:
             Dict with category_id and subcategory_id, or None if no match
@@ -75,6 +198,22 @@ class CategorizationService:
         if not description:
             return None
 
+        # Try OpenAI categorization first if enabled
+        if self.openai_enabled:
+            openai_result = self._categorize_with_openai(description)
+            if openai_result:
+                return openai_result
+
+        # Fallback to keyword-based categorization
+        return self._categorize_with_keywords(description)
+
+    def _categorize_with_keywords(self, description: str) -> Optional[Dict[str, any]]:
+        """
+        Categorize a transaction using keyword-based pattern matching.
+        
+        Returns:
+            Dict with category_id and subcategory_id, or None if no match
+        """
         description_lower = description.lower()
 
         # Try to match against category keywords
@@ -95,7 +234,8 @@ class CategorizationService:
                             'category_id': category.id,
                             'subcategory_id': subcategory.id if subcategory else None,
                             'category_name': category_name,
-                            'subcategory_name': subcategory.name if subcategory else None
+                            'subcategory_name': subcategory.name if subcategory else None,
+                            'method': 'keywords'
                         }
 
         return None
@@ -163,6 +303,8 @@ class CategorizationService:
             'total_processed': 0,
             'successfully_categorized': 0,
             'failed_categorization': 0,
+            'openai_categorized': 0,
+            'keyword_categorized': 0,
             'categories_assigned': defaultdict(int)
         }
 
@@ -178,6 +320,13 @@ class CategorizationService:
 
                 stats['successfully_categorized'] += 1
                 stats['categories_assigned'][categorization['category_name']] += 1
+                
+                # Track categorization method
+                method = categorization.get('method', 'unknown')
+                if method == 'openai':
+                    stats['openai_categorized'] += 1
+                elif method == 'keywords':
+                    stats['keyword_categorized'] += 1
             else:
                 stats['failed_categorization'] += 1
 
