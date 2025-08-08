@@ -168,6 +168,16 @@ async def _show_daily_patterns(query, user_id):
                 f"({stats['transaction_count']} txns)"
             )
 
+    # Show top individual transactions
+    top_transactions = daily_analysis.get('top_transactions', [])
+    if top_transactions:
+        message_parts.append("\n🧾 <b>Top Transactions:</b>")
+        for txn in top_transactions:
+            message_parts.append(
+                f"• {txn['amount']:,.0f} IDR - {txn['merchant']} "
+                f"({txn['category']}) at {txn['time']}"
+            )
+
     message_parts.append(f"\n📊 Analysis period: {daily_analysis.get('analysis_period', 'Last 90 days')}")
 
     await query.edit_message_text("\n".join(message_parts), parse_mode="HTML")
@@ -200,7 +210,18 @@ async def _format_daily_patterns_response(update, daily_analysis):
                     f"({stats['transaction_count']} transactions)"
                 )
 
-    message_parts.append(f"\n📊 Based on {daily_analysis.get('total_transactions', 0)} transactions")
+    # Add top transactions detail
+    top_transactions = daily_analysis.get('top_transactions', [])
+    if top_transactions:
+        message_parts.append("\n🧾 <b>Top Transactions:</b>")
+        for txn in top_transactions:
+            message_parts.append(
+                f"• {txn['amount']:,.0f} IDR - {txn['merchant']} "
+                f"({txn['category']}) at {txn['time']}"
+            )
+
+    message_parts.append(
+        f"\n📊 Based on {daily_analysis.get('total_transactions', 0)} transactions")
     message_parts.append("💡 Use /patterns for more detailed analysis options")
 
     await update.message.reply_text("\n".join(message_parts), parse_mode="HTML")
