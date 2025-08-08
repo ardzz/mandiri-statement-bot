@@ -13,7 +13,7 @@ A sophisticated Telegram bot that transforms your Mandiri bank statements into a
 ### 💰 **Budget & Goal Management**
 - **Budget Limits** - Set and track category-specific spending limits
 - **Financial Goals** - Create and monitor savings targets and spending goals
-- **Smart Alerts** - Get notified when approaching budget limits or unusual spending patterns
+- **Smart Alerts** - Get notified when approaching budget limits or unusual spending patterns via ML-based anomaly detection
 
 ### 🔒 **Security & Privacy**
 - **Encrypted Statement Processing** - Handles password-protected Mandiri e-Statements
@@ -92,7 +92,13 @@ MYSQL_DATABASE=finance_db
 MYSQL_USER=finance_user  
 MYSQL_PASSWORD=secure_password
 MYSQL_PORT_FORWARD=3307
+
+# Anomaly Detector
+ENABLE_ANOMALY_DETECTOR=true
+ANOMALY_MODEL_DIR=models
 ```
+
+When `ENABLE_ANOMALY_DETECTOR` is true, the bot trains an IsolationForest model on each user's transaction history and stores it in `ANOMALY_MODEL_DIR` for ongoing anomaly checks.
 
 ### Getting a Telegram Bot Token
 1. Message [@BotFather](https://t.me/botfather) on Telegram
