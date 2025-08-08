@@ -17,6 +17,9 @@ async def handle_patterns_menu(update: Update, context: ContextTypes.DEFAULT_TYP
             InlineKeyboardButton("🔄 Recurring Transactions", callback_data="patterns_recurring")
         ],
         [
+            InlineKeyboardButton("📝 Spending Habits", callback_data="patterns_habits"),
+        ],
+        [
             InlineKeyboardButton("📈 Pattern Insights", callback_data="patterns_insights"),
             InlineKeyboardButton("⚠️ Anomaly Detection", callback_data="patterns_anomalies")
         ],
@@ -32,6 +35,7 @@ async def handle_patterns_menu(update: Update, context: ContextTypes.DEFAULT_TYP
         "• 📆 Track weekly spending trends\n"
         "• 📊 Monitor monthly patterns\n"
         "• 🔄 Detect recurring subscriptions\n"
+        "• 📝 Identify spending habits\n"
         "• 📈 Get personalized insights\n"
         "• ⚠️ Identify unusual spending\n\n"
         "Choose an analysis type:",
@@ -61,6 +65,8 @@ async def handle_patterns_callback(update: Update, context: ContextTypes.DEFAULT
             await _show_monthly_patterns(query, user_id)
         elif data == "patterns_recurring":
             await _show_recurring_transactions(query, user_id)
+        elif data == "patterns_habits":
+            await _show_spending_habits(query, user_id)
         elif data == "patterns_insights":
             await _show_pattern_insights(query, user_id)
         elif data == "patterns_anomalies":
@@ -454,6 +460,40 @@ async def _show_recurring_transactions(query, user_id):
 
     except Exception as e:
         await query.edit_message_text(f"❌ Error detecting recurring transactions: {str(e)}")
+
+
+async def _show_spending_habits(query, user_id):
+    """Show top spending habits analysis."""
+    await query.edit_message_text("📝 Analyzing spending habits... ⏳")
+
+    try:
+        pattern_service = SpendingPatternService()
+        habits = pattern_service.identify_spending_habits(user_id)
+
+        if 'error' in habits:
+            await query.edit_message_text(f"❌ {habits['error']}")
+            return
+
+        message_parts = ["📝 <b>Top Spending Habits</b>\n"]
+
+        habit_list = habits.get('habits', [])
+        if habit_list:
+            for habit in habit_list:
+                message_parts.append(
+                    f"• <b>{habit['category']}:</b> {habit['total_spending']:,.0f} IDR "
+                    f"({habit['transaction_count']} txns, avg {habit['average_monthly_spending']:,.0f}/mo)"
+                )
+
+            message_parts.append(
+                f"\n📊 Categories analyzed: {habits.get('total_categories', 0)}"
+            )
+        else:
+            message_parts.append("No spending habits found.")
+
+        await query.edit_message_text("\n".join(message_parts), parse_mode="HTML")
+
+    except Exception as e:
+        await query.edit_message_text(f"❌ Error analyzing spending habits: {str(e)}")
 
 
 async def _show_pattern_insights(query, user_id):
