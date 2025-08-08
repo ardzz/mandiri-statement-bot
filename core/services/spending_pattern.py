@@ -198,6 +198,9 @@ class FinancialAnalysisService:
         dates = sorted(daily_spending.keys())
         amounts = [daily_spending[d] for d in dates]
 
+        # Calculate average daily spending to measure deviation
+        avg_amount = float(np.mean(amounts)) if amounts else 0.0
+
         model_path = os.path.join(ANOMALY_MODEL_DIR, f"anomaly_{account.id}.joblib")
         detector = AnomalyDetector(model_path)
 
@@ -210,11 +213,13 @@ class FinancialAnalysisService:
         for date, amount, pred, score in zip(dates, amounts, preds, scores):
             if pred == -1:
                 severity = 'high' if score < -0.5 else 'medium'
+                deviation = amount - avg_amount
                 anomalies.append({
                     'date': date,
                     'amount': amount,
                     'score': float(score),
-                    'severity': severity
+                    'severity': severity,
+                    'deviation': deviation,
                 })
                 if not self._alert_exists(account.id, 'spending_anomaly', str(date)):
                     self.alert_repo.create_alert(

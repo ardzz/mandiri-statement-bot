@@ -142,11 +142,12 @@ async def _show_spending_anomalies(query, user_id, analysis_service):
 
     for i, anomaly in enumerate(anomalies[:5], 1):  # Show top 5
         severity_emoji = "🔴" if anomaly['severity'] == 'high' else "🟡"
+        deviation = anomaly.get('deviation', 0)
         anomaly_text += (
             f"{severity_emoji} <b>Anomaly #{i}</b>\n"
             f"📅 Date: {anomaly['date']}\n"
             f"💰 Amount: {anomaly['amount']:,.0f} IDR\n"
-            f"📊 Deviation: +{anomaly['deviation']:,.0f} IDR above average\n"
+            f"📊 Deviation: {deviation:+,.0f} IDR from average\n"
             f"⚠️ Severity: {anomaly['severity'].title()}\n\n"
         )
 
