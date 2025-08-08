@@ -259,6 +259,50 @@ class SpendingPatternService:
 
         return recurring_transactions
 
+    def identify_spending_habits(self, user_id: int, top_n: int = 5) -> Dict:
+        """Identify consistent spending habits across all transactions."""
+        account = self.account_repo.get_by_telegram_id(str(user_id))
+        if not account:
+            return {'error': 'Account not found'}
+
+        transactions = self.transaction_repo.get_all_transactions(account.id)
+        if not transactions:
+            return {'error': 'No transactions found'}
+
+        category_data = defaultdict(lambda: {
+            'total_amount': 0,
+            'transaction_count': 0,
+            'months': defaultdict(float)
+        })
+
+        for t in transactions:
+            if t.outgoing and t.outgoing > 0:
+                category = self._get_transaction_category(t)
+                category_data[category]['total_amount'] += t.outgoing
+                category_data[category]['transaction_count'] += 1
+                month_key = t.date.strftime('%Y-%m')
+                category_data[category]['months'][month_key] += t.outgoing
+
+        habits = []
+        for category, data in category_data.items():
+            months_count = len(data['months'])
+            avg_monthly = (
+                data['total_amount'] / months_count if months_count > 0 else 0
+            )
+            habits.append({
+                'category': category,
+                'total_spending': data['total_amount'],
+                'transaction_count': data['transaction_count'],
+                'average_monthly_spending': avg_monthly,
+            })
+
+        habits.sort(key=lambda x: x['total_spending'], reverse=True)
+
+        return {
+            'habits': habits[:top_n],
+            'total_categories': len(category_data)
+        }
+
     def _calculate_trend(self, values: List[float]) -> str:
         """Calculate trend from a series of values."""
         if len(values) < 2:
