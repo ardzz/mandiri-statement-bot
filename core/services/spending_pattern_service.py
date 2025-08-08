@@ -38,6 +38,7 @@ class SpendingPatternService:
         # Group by day of week and hour
         daily_patterns = defaultdict(lambda: {'amounts': [], 'count': 0})
         hourly_patterns = defaultdict(lambda: {'amounts': [], 'count': 0})
+        detailed_transactions = []
 
         for t in transactions:
             if t.outgoing and t.outgoing > 0:
@@ -50,6 +51,14 @@ class SpendingPatternService:
                 hour = t.date.hour
                 hourly_patterns[hour]['amounts'].append(t.outgoing)
                 hourly_patterns[hour]['count'] += 1
+
+                # Collect detailed transaction info for later display
+                detailed_transactions.append({
+                    'amount': t.outgoing,
+                    'merchant': t.description,
+                    'category': self._get_transaction_category(t),
+                    'time': t.date.strftime('%Y-%m-%d %H:%M')
+                })
 
         # Calculate statistics
         daily_stats = {}
@@ -72,12 +81,20 @@ class SpendingPatternService:
                     'transaction_count': data['count']
                 }
 
+        # Sort and keep top 5 transactions by amount
+        top_transactions = sorted(
+            detailed_transactions,
+            key=lambda x: x['amount'],
+            reverse=True
+        )[:5]
+
         # Store patterns in database
         self._store_daily_patterns(account.id, daily_stats, hourly_stats)
 
         return {
             'daily_patterns': daily_stats,
             'hourly_patterns': hourly_stats,
+            'top_transactions': top_transactions,
             'analysis_period': f"{start_date} to {end_date}",
             'total_transactions': len(transactions)
         }
