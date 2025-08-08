@@ -1,11 +1,14 @@
 from datetime import datetime, timedelta
 from typing import Dict, List, Tuple, Optional
 from collections import defaultdict
+import os
 import numpy as np
 from core.database import Session, SpendingAlert
 from core.repository.TransactionRepository import TransactionRepository
 from core.repository.BudgetRepository import BudgetRepository, GoalRepository, AlertRepository
 from core.repository.BankAccountRepository import BankAccountRepository
+from core.ml.anomaly_detector import AnomalyDetector
+from config.settings import ANOMALY_MODEL_DIR, ENABLE_ANOMALY_DETECTOR
 
 
 class FinancialAnalysisService:
@@ -165,7 +168,10 @@ class FinancialAnalysisService:
         return budget_status
 
     def detect_spending_anomalies(self, user_id: int) -> List[Dict]:
-        """Detect unusual spending patterns."""
+        """Detect unusual spending patterns using a trained anomaly detector."""
+        if not ENABLE_ANOMALY_DETECTOR:
+            return []
+
         account = self.account_repo.get_by_telegram_id(str(user_id))
         if not account:
             return []
@@ -178,30 +184,46 @@ class FinancialAnalysisService:
             account.id, start_date, end_date
         )
 
-        if len(transactions) < 10:  # Not enough data
+        if len(transactions) < 10:
             return []
 
-        # Calculate daily spending
+        # Aggregate daily spending amounts
         daily_spending = defaultdict(float)
         for t in transactions:
             daily_spending[t.date.date()] += abs(t.outgoing or 0)
 
-        spending_amounts = list(daily_spending.values())
-        mean_spending = np.mean(spending_amounts)
-        std_spending = np.std(spending_amounts)
+        if not daily_spending:
+            return []
 
-        # Detect anomalies (spending > mean + 2*std)
-        threshold = mean_spending + 2 * std_spending
+        dates = sorted(daily_spending.keys())
+        amounts = [daily_spending[d] for d in dates]
 
-        anomalies = []
-        for date, amount in daily_spending.items():
-            if amount > threshold and amount > mean_spending * 1.5:  # At least 50% above average
+        model_path = os.path.join(ANOMALY_MODEL_DIR, f"anomaly_{account.id}.joblib")
+        detector = AnomalyDetector(model_path)
+
+        if not detector.is_trained:
+            detector.train(amounts)
+
+        preds, scores = detector.predict(amounts)
+
+        anomalies: List[Dict] = []
+        for date, amount, pred, score in zip(dates, amounts, preds, scores):
+            if pred == -1:
+                severity = 'high' if score < -0.5 else 'medium'
                 anomalies.append({
                     'date': date,
                     'amount': amount,
-                    'deviation': amount - mean_spending,
-                    'severity': 'high' if amount > mean_spending * 2 else 'medium'
+                    'score': float(score),
+                    'severity': severity
                 })
+                if not self._alert_exists(account.id, 'spending_anomaly', str(date)):
+                    self.alert_repo.create_alert(
+                        account.id,
+                        'spending_anomaly',
+                        f'Unusual spending detected on {date:%Y-%m-%d}: {amount:,.0f} IDR',
+                        amount,
+                        str(date)
+                    )
 
         return sorted(anomalies, key=lambda x: x['date'], reverse=True)
 
